@@ -1,17 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// SPDX-License-Identifier: Apache-2.0
 #include <text_shaper/coretext_locator.h>
 #include <text_shaper/directwrite_locator.h>
 #include <text_shaper/font_locator_provider.h>
@@ -31,32 +18,20 @@ font_locator_provider& font_locator_provider::get()
     return instance;
 }
 
+font_locator& font_locator_provider::native()
+{
+    if (!_native)
+    {
 #if defined(__APPLE__)
-font_locator& font_locator_provider::coretext()
-{
-    if (!_coretext)
-        _coretext = make_unique<coretext_locator>();
-
-    return *_coretext;
-}
+        _native = make_unique<coretext_locator>();
+#elif defined(_WIN32)
+        _native = make_unique<directwrite_locator>();
+#else
+        _native = make_unique<fontconfig_locator>();
 #endif
+    }
 
-#if defined(_WIN32)
-font_locator& font_locator_provider::directwrite()
-{
-    if (!_directwrite)
-        _directwrite = make_unique<directwrite_locator>();
-
-    return *_directwrite;
-}
-#endif
-
-font_locator& font_locator_provider::fontconfig()
-{
-    if (!_fontconfig)
-        _fontconfig = make_unique<fontconfig_locator>();
-
-    return *_fontconfig;
+    return *_native;
 }
 
 font_locator& font_locator_provider::mock()

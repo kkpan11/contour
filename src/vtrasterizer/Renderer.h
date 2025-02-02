@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/ColorPalette.h>
@@ -26,23 +14,28 @@
 #include <vtrasterizer/RenderTarget.h>
 #include <vtrasterizer/TextRenderer.h>
 
+#include <crispy/StrongLRUHashtable.h>
 #include <crispy/size.h>
 
-#include <fmt/format.h>
+#include <gsl/pointers>
 
-#include <chrono>
+#include <format>
 #include <memory>
-#include <utility>
 #include <vector>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 struct RenderCursor
 {
-    crispy::Point position;
-    CursorShape shape;
+    crispy::point position;
+    vtbackend::CursorShape shape;
     int width;
+
+    RenderCursor(crispy::point position, vtbackend::CursorShape shape, int width):
+        position(position), shape(shape), width(width)
+    {
+    }
 };
 
 /**
@@ -59,12 +52,11 @@ class Renderer
      * @p atlasDirectMapping Indicates whether or not direct mapped tiles are allowed.
      * @p atlasTileCount     Number of tiles guaranteed to be available in LRU cache.
      */
-    Renderer(PageSize pageSize,
+    Renderer(vtbackend::PageSize pageSize,
              FontDescriptions fontDescriptions,
-             ColorPalette const& colorPalette,
-             Opacity backgroundOpacity,
-             crispy::StrongHashtableSize atlasHashtableSlotCount,
-             crispy::LRUCapacity atlasTileCount,
+             vtbackend::ColorPalette const& colorPalette,
+             crispy::strong_hashtable_size atlasHashtableSlotCount,
+             crispy::lru_capacity atlasTileCount,
              bool atlasDirectMapping,
              Decorator hyperlinkNormal,
              Decorator hyperlinkHover);
@@ -76,9 +68,6 @@ class Renderer
     void setRenderTarget(RenderTarget& renderTarget);
     RenderTarget& renderTarget() noexcept { return *_renderTarget; }
     [[nodiscard]] bool hasRenderTarget() const noexcept { return _renderTarget != nullptr; }
-
-    void setBackgroundOpacity(terminal::Opacity opacity) { _backgroundOpacity = opacity; }
-    [[nodiscard]] terminal::Opacity backgroundOpacity() const noexcept { return _backgroundOpacity; }
 
     bool setFontSize(text::font_size fontSize);
     void updateFontMetrics();
@@ -93,7 +82,7 @@ class Renderer
         _decorationRenderer.setHyperlinkDecoration(normal, hover);
     }
 
-    void setPageSize(PageSize screenSize) noexcept { _gridMetrics.pageSize = screenSize; }
+    void setPageSize(vtbackend::PageSize screenSize) noexcept { _gridMetrics.pageSize = screenSize; }
 
     void setMargin(PageMargin margin) noexcept
     {
@@ -113,36 +102,36 @@ class Renderer
      *                       The user shall not notice that, because this frame
      *                       is known already to be updated right after again.
      */
-    void render(Terminal& terminal, bool pressureHint);
+    void render(vtbackend::Terminal& terminal, bool pressureHint);
 
-    void discardImage(Image const& image);
+    void discardImage(vtbackend::Image const& image);
 
     void clearCache();
 
     void inspect(std::ostream& textOutput) const;
 
-    std::array<std::reference_wrapper<Renderable>, 5> renderables()
+    std::array<gsl::not_null<Renderable*>, 5> renderables()
     {
-        return std::array<std::reference_wrapper<Renderable>, 5> {
-            _backgroundRenderer, _cursorRenderer, _decorationRenderer, _imageRenderer, _textRenderer
+        return std::array<gsl::not_null<Renderable*>, 5> {
+            &_backgroundRenderer, &_cursorRenderer, &_decorationRenderer, &_imageRenderer, &_textRenderer
         };
     }
 
-    [[nodiscard]] std::array<std::reference_wrapper<Renderable const>, 5> renderables() const
+    [[nodiscard]] std::array<gsl::not_null<Renderable const*>, 5> renderables() const
     {
-        return std::array<std::reference_wrapper<Renderable const>, 5> {
-            _backgroundRenderer, _cursorRenderer, _decorationRenderer, _imageRenderer, _textRenderer
+        return std::array<gsl::not_null<Renderable const*>, 5> {
+            &_backgroundRenderer, &_cursorRenderer, &_decorationRenderer, &_imageRenderer, &_textRenderer
         };
     }
 
   private:
     void configureTextureAtlas();
-    void renderCells(std::vector<RenderCell> const& renderableCells);
-    void renderLines(std::vector<RenderLine> const& renderableLines);
+    void renderCells(std::vector<vtbackend::RenderCell> const& renderableCells);
+    void renderLines(std::vector<vtbackend::RenderLine> const& renderableLines);
     void executeImageDiscards();
 
-    crispy::StrongHashtableSize _atlasHashtableSlotCount;
-    crispy::LRUCapacity _atlasTileCount;
+    crispy::strong_hashtable_size _atlasHashtableSlotCount;
+    crispy::lru_capacity _atlasTileCount;
     bool _atlasDirectMapping;
 
     RenderTarget* _renderTarget = nullptr;
@@ -156,11 +145,10 @@ class Renderer
 
     GridMetrics _gridMetrics;
 
-    ColorPalette const& _colorPalette;
-    Opacity _backgroundOpacity;
+    vtbackend::ColorPalette const& _colorPalette;
 
-    std::mutex _imageDiscardLock;            //!< Lock guard for accessing _discardImageQueue.
-    std::vector<ImageId> _discardImageQueue; //!< List of images to be discarded.
+    std::mutex _imageDiscardLock;                       //!< Lock guard for accessing _discardImageQueue.
+    std::vector<vtbackend::ImageId> _discardImageQueue; //!< List of images to be discarded.
 
     BackgroundRenderer _backgroundRenderer;
     ImageRenderer _imageRenderer;
@@ -169,4 +157,4 @@ class Renderer
     CursorRenderer _cursorRenderer;
 };
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

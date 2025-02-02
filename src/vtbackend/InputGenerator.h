@@ -1,39 +1,25 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/primitives.h>
 
 #include <crispy/escape.h>
+#include <crispy/flags.h>
 #include <crispy/overloaded.h>
 
-#include <mutex>
+#include <libunicode/convert.h>
+
+#include <format>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
-#include <utility>
-#include <variant>
-#include <vector>
 
-#include <libunicode/convert.h>
-
-namespace terminal
+namespace vtbackend
 {
 
 /// Mutualy exclusive mouse protocls.
-enum class MouseProtocol
+enum class MouseProtocol : uint16_t
 {
     /// Old X10 mouse protocol
     X10 = 9,
@@ -47,111 +33,41 @@ enum class MouseProtocol
     AnyEventTracking = 1003,
 };
 
-class Modifier
+// {{{ Modifier
+enum Modifier : uint8_t
 {
-  public:
-    enum Key : unsigned
-    {
-        None = 0,
-        Shift = 1,
-        Alt = 2,
-        Control = 4,
-        Meta = 8,
-    };
-
-    constexpr Modifier(Key key): _mask { static_cast<unsigned>(key) } {}
-
-    constexpr Modifier() = default;
-    constexpr Modifier(Modifier&&) = default;
-    constexpr Modifier(Modifier const&) = default;
-    constexpr Modifier& operator=(Modifier&&) = default;
-    constexpr Modifier& operator=(Modifier const&) = default;
-
-    [[nodiscard]] constexpr unsigned value() const noexcept { return _mask; }
-
-    [[nodiscard]] constexpr bool none() const noexcept { return value() == 0; }
-    [[nodiscard]] constexpr bool some() const noexcept { return value() != 0; }
-    [[nodiscard]] constexpr bool shift() const noexcept { return value() & Shift; }
-    [[nodiscard]] constexpr bool alt() const noexcept { return value() & Alt; }
-    [[nodiscard]] constexpr bool control() const noexcept { return value() & Control; }
-    [[nodiscard]] constexpr bool meta() const noexcept { return value() & Meta; }
-
-    constexpr operator unsigned() const noexcept { return _mask; }
-
-    [[nodiscard]] constexpr bool any() const noexcept { return _mask != 0; }
-
-    constexpr Modifier& operator|=(Modifier const& other) noexcept
-    {
-        _mask |= other._mask;
-        return *this;
-    }
-
-    [[nodiscard]] constexpr Modifier with(Modifier const& other) const noexcept
-    {
-        return Modifier(static_cast<Key>(_mask | other._mask));
-    }
-
-    [[nodiscard]] constexpr Modifier without(Modifier const& other) const noexcept
-    {
-        return Modifier(static_cast<Key>(_mask & ~other._mask));
-    }
-
-    [[nodiscard]] bool contains(Modifier const& other) const noexcept
-    {
-        return (_mask & other._mask) == other._mask;
-    }
-
-    constexpr void enable(Key key) noexcept { _mask |= key; }
-
-    constexpr void disable(Key key) noexcept { _mask &= ~static_cast<unsigned>(key); }
-
-  private:
-    unsigned _mask = 0;
+    // NB: These values MUST match the values of the corresponding
+    // the bit positions in the modifier mask in CSIu keyboard protocol.
+    None = 0,
+    Shift = 1,
+    Alt = 2,
+    Control = 4,
+    Super = 8,
+    Hyper = 16,
+    Meta = 32,
+    CapsLock = 64,
+    NumLock = 128,
 };
 
-constexpr Modifier operator|(Modifier a, Modifier b) noexcept
-{
-    return Modifier(static_cast<Modifier::Key>(a.value() | b.value()));
-}
-
-constexpr bool operator<(Modifier lhs, Modifier rhs) noexcept
-{
-    return lhs.value() < rhs.value();
-}
-
-constexpr bool operator==(Modifier lhs, Modifier rhs) noexcept
-{
-    return lhs.value() == rhs.value();
-}
-
-std::optional<Modifier::Key> parseModifierKey(std::string const& key);
-
-constexpr bool operator!(Modifier modifier) noexcept
-{
-    return modifier.none();
-}
-
-constexpr bool operator==(Modifier lhs, Modifier::Key rhs) noexcept
-{
-    return static_cast<Modifier::Key>(lhs.value()) == rhs;
-}
-
-constexpr Modifier operator+(Modifier::Key lhs, Modifier::Key rhs) noexcept
-{
-    return Modifier(static_cast<Modifier::Key>(static_cast<unsigned>(lhs) | static_cast<unsigned>(rhs)));
-}
+using Modifiers = crispy::flags<Modifier>;
 
 /// @returns CSI parameter for given function key modifier
-constexpr size_t makeVirtualTerminalParam(Modifier modifier) noexcept
+constexpr size_t makeVirtualTerminalParam(Modifiers modifier) noexcept
 {
+#if defined(__APPLE__)
+    // Use option key as a control modifier to use
+    // Ctrl-Left[Right]Arrow for word navigation.
+    if (modifier == Modifier::Alt)
+        return 1 + Modifier::Control;
+#endif
     return 1 + modifier.value();
 }
 
-std::string to_string(Modifier modifier);
+std::string to_string(Modifiers modifier);
 
 // }}}
 // {{{ KeyInputEvent, Key
-enum class Key
+enum class Key : uint8_t
 {
     // function keys
     F1,
@@ -174,6 +90,26 @@ enum class Key
     F18,
     F19,
     F20,
+    F21,
+    F22,
+    F23,
+    F24,
+    F25,
+    F26,
+    F27,
+    F28,
+    F29,
+    F30,
+    F31,
+    F32,
+    F33,
+    F34,
+    F35,
+
+    Escape,
+    Enter,
+    Tab,
+    Backspace,
 
     // cursor keys
     DownArrow,
@@ -189,13 +125,47 @@ enum class Key
     PageUp,
     PageDown,
 
+    // media keys
+    MediaPlay,
+    MediaStop,
+    MediaPrevious,
+    MediaNext,
+    MediaPause,
+    MediaTogglePlayPause,
+
+    VolumeUp,
+    VolumeDown,
+    VolumeMute,
+
+    // modifier keys
+    LeftShift,
+    RightShift,
+    LeftControl,
+    RightControl,
+    LeftAlt,
+    RightAlt,
+    LeftSuper,
+    RightSuper,
+    LeftHyper,
+    RightHyper,
+    LeftMeta,
+    RightMeta,
+    IsoLevel3Shift,
+    IsoLevel5Shift,
+
+    // other special keys
+    CapsLock,
+    ScrollLock,
+    NumLock,
+    PrintScreen,
+    Pause,
+    Menu,
+
     // numpad keys
     // NOLINTBEGIN(readability-identifier-naming)
-    Numpad_NumLock,
     Numpad_Divide,
     Numpad_Multiply,
     Numpad_Subtract,
-    Numpad_CapsLock,
     Numpad_Add,
     Numpad_Decimal,
     Numpad_Enter,
@@ -215,14 +185,14 @@ enum class Key
 
 std::string to_string(Key key);
 
-enum class KeyMode
+enum class KeyMode : uint8_t
 {
     Normal,
     Application
 };
 // }}}
 // {{{ Mouse
-enum class MouseButton
+enum class MouseButton : uint8_t
 {
     Left,
     Right,
@@ -230,11 +200,13 @@ enum class MouseButton
     Release, // Button was released and/or no button is pressed.
     WheelUp,
     WheelDown,
+    WheelLeft,
+    WheelRight,
 };
 
 std::string to_string(MouseButton button);
 
-enum class MouseTransport
+enum class MouseTransport : uint8_t
 {
     // CSI M Cb Cx Cy, with Cb, Cx, Cy incremented by 0x20
     Default,
@@ -250,10 +222,156 @@ enum class MouseTransport
 };
 // }}}
 
+enum class KeyboardEventType : uint8_t
+{
+    Press = 1,
+    Repeat = 2,
+    Release = 3,
+};
+
+class KeyboardInputGenerator
+{
+  public:
+    virtual ~KeyboardInputGenerator() = default;
+
+    virtual bool generateChar(char32_t characterEvent,
+                              uint32_t physicalKey,
+                              Modifiers modifier,
+                              KeyboardEventType eventType) = 0;
+    virtual bool generateKey(Key key, Modifiers modifier, KeyboardEventType eventType) = 0;
+};
+
+class StandardKeyboardInputGenerator: public KeyboardInputGenerator
+{
+  public:
+    bool generateChar(char32_t characterEvent,
+                      uint32_t physicalKey,
+                      Modifiers modifier,
+                      KeyboardEventType eventType) override;
+    bool generateKey(Key key, Modifiers modifier, KeyboardEventType eventType) override;
+
+    [[nodiscard]] bool normalCursorKeys() const noexcept { return _cursorKeysMode == KeyMode::Normal; }
+    [[nodiscard]] bool applicationCursorKeys() const noexcept { return !normalCursorKeys(); }
+
+    [[nodiscard]] bool numericKeypad() const noexcept { return _numpadKeysMode == KeyMode::Normal; }
+    [[nodiscard]] bool applicationKeypad() const noexcept { return !numericKeypad(); }
+    void setCursorKeysMode(KeyMode mode) { _cursorKeysMode = mode; }
+    void setNumpadKeysMode(KeyMode mode) { _numpadKeysMode = mode; }
+    void setApplicationKeypadMode(bool enable)
+    {
+        _numpadKeysMode = enable ? KeyMode::Application : KeyMode::Normal;
+    }
+
+    [[nodiscard]] std::string_view peek() const noexcept { return std::string_view(_pendingSequence); }
+
+    [[nodiscard]] std::string take() noexcept
+    {
+        auto result = std::move(_pendingSequence);
+        _pendingSequence.clear();
+        return result;
+    }
+
+    void reset()
+    {
+        _cursorKeysMode = KeyMode::Normal;
+        _numpadKeysMode = KeyMode::Normal;
+    }
+
+  protected:
+    struct FunctionKeyMapping
+    {
+        std::string_view std {};
+        std::string_view mods {};
+        std::string_view appCursor {};
+        std::string_view appKeypad {};
+    };
+
+    [[nodiscard]] std::string select(Modifiers modifier, FunctionKeyMapping mapping) const;
+    void append(char ch) { _pendingSequence += ch; }
+    void append(std::string_view sequence) { _pendingSequence += sequence; }
+
+    template <typename... Args>
+    void append(std::string_view const& text, Args... args)
+    {
+        append(std::vformat(text, std::make_format_args(args...)));
+    }
+
+    KeyMode _cursorKeysMode = KeyMode::Normal;
+    KeyMode _numpadKeysMode = KeyMode::Normal;
+    std::string _pendingSequence {};
+};
+
+enum class KeyboardEventFlag : uint8_t
+{
+    None = 0,
+    DisambiguateEscapeCodes = 1,
+    ReportEventTypes = 2,
+    ReportAlternateKeys = 4,
+    ReportAllKeysAsEscapeCodes = 8,
+    ReportAssociatedText = 16,
+};
+
+using KeyboardEventFlags = crispy::flags<KeyboardEventFlag>;
+
+// Implements extended CSIu keyboard input mode.
+class ExtendedKeyboardInputGenerator final: public StandardKeyboardInputGenerator
+{
+  public:
+    static constexpr inline size_t MaxStackDepth = 32;
+
+    constexpr void enter(KeyboardEventFlags flags) noexcept
+    {
+        if (stackDepth() < MaxStackDepth)
+            _flags.at(++_currentStackTop) = flags;
+    }
+
+    [[nodiscard]] constexpr size_t stackDepth() const noexcept { return 1 + _currentStackTop; }
+
+    [[nodiscard]] constexpr KeyboardEventFlags flags() const noexcept { return _flags.at(_currentStackTop); }
+
+    [[nodiscard]] constexpr KeyboardEventFlags& flags() noexcept { return _flags.at(_currentStackTop); }
+
+    [[nodiscard]] constexpr bool enabled(KeyboardEventFlag flag) const noexcept
+    {
+        return flags().contains(flag);
+    }
+
+    [[nodiscard]] constexpr bool enabled(KeyboardEventType eventType) const noexcept
+    {
+        // Press-event is always emitted. The other events are only emitted if the corresponding flag is set.
+        return eventType != KeyboardEventType::Release || enabled(KeyboardEventFlag::ReportEventTypes);
+    }
+
+    constexpr void leave(size_t n = 1) noexcept { _currentStackTop -= std::min(n, _currentStackTop); }
+
+    constexpr void reset() noexcept
+    {
+        _currentStackTop = 0;
+        _flags.at(_currentStackTop) = KeyboardEventFlag::None;
+    }
+
+    // {{{ Overrides from StandardKeyboardInputGenerator
+
+    bool generateChar(char32_t characterEvent,
+                      uint32_t physicalKey,
+                      Modifiers modifier,
+                      KeyboardEventType eventType) override;
+    bool generateKey(Key key, Modifiers modifier, KeyboardEventType eventType) override;
+
+    // }}}
+
+  private:
+    [[nodiscard]] std::string encodeCharacter(char32_t ch, uint32_t physicalKey, Modifiers modifier) const;
+    [[nodiscard]] std::string encodeModifiers(Modifiers modifier, KeyboardEventType eventType) const;
+
+    std::array<KeyboardEventFlags, MaxStackDepth> _flags = { KeyboardEventFlag::None };
+    size_t _currentStackTop = 0;
+};
+
 class InputGenerator
 {
   public:
-    using Sequence = std::vector<char>;
+    using Sequence = std::string;
 
     /// Changes the input mode for cursor keys.
     void setCursorKeysMode(KeyMode mode);
@@ -263,11 +381,20 @@ class InputGenerator
 
     void setApplicationKeypadMode(bool enable);
 
-    [[nodiscard]] bool normalCursorKeys() const noexcept { return _cursorKeysMode == KeyMode::Normal; }
-    [[nodiscard]] bool applicationCursorKeys() const noexcept { return !normalCursorKeys(); }
+    [[nodiscard]] bool normalCursorKeys() const noexcept
+    {
+        return _keyboardInputGenerator.normalCursorKeys();
+    }
+    [[nodiscard]] bool applicationCursorKeys() const noexcept
+    {
+        return _keyboardInputGenerator.applicationCursorKeys();
+    }
 
-    [[nodiscard]] bool numericKeypad() const noexcept { return _numpadKeysMode == KeyMode::Normal; }
-    [[nodiscard]] bool applicationKeypad() const noexcept { return !numericKeypad(); }
+    [[nodiscard]] bool numericKeypad() const noexcept { return _keyboardInputGenerator.numericKeypad(); }
+    [[nodiscard]] bool applicationKeypad() const noexcept
+    {
+        return _keyboardInputGenerator.applicationKeypad();
+    }
 
     [[nodiscard]] bool bracketedPaste() const noexcept { return _bracketedPaste; }
     void setBracketedPaste(bool enable) { _bracketedPaste = enable; }
@@ -279,7 +406,7 @@ class InputGenerator
     void setMouseTransport(MouseTransport mouseTransport);
     [[nodiscard]] MouseTransport mouseTransport() const noexcept { return _mouseTransport; }
 
-    enum class MouseWheelMode
+    enum class MouseWheelMode : uint8_t
     {
         // mouse wheel generates mouse wheel events as determined by mouse protocol + transport.
         Default,
@@ -298,20 +425,28 @@ class InputGenerator
     void setPassiveMouseTracking(bool v) noexcept { _passiveMouseTracking = v; }
     [[nodiscard]] bool passiveMouseTracking() const noexcept { return _passiveMouseTracking; }
 
-    bool generate(char32_t characterEvent, Modifier modifier);
-    bool generate(std::u32string const& characterEvent, Modifier modifier);
-    bool generate(Key key, Modifier modifier);
+    bool generate(char32_t characterEvent,
+                  uint32_t physicalKey,
+                  Modifiers modifier,
+                  KeyboardEventType eventType);
+    bool generate(char32_t characterEvent, Modifiers modifier, KeyboardEventType eventType)
+    {
+        // Simulate physical key here.
+        auto const physicalKey = static_cast<uint32_t>(characterEvent);
+        return generate(characterEvent, physicalKey, modifier, eventType);
+    }
+    bool generate(Key key, Modifiers modifier, KeyboardEventType eventType);
     void generatePaste(std::string_view const& text);
-    bool generateMousePress(Modifier modifier,
+    bool generateMousePress(Modifiers modifier,
                             MouseButton button,
                             CellLocation pos,
                             PixelCoordinate pixelPosition,
                             bool uiHandled);
-    bool generateMouseMove(Modifier modifier,
+    bool generateMouseMove(Modifiers modifier,
                            CellLocation pos,
                            PixelCoordinate pixelPosition,
                            bool uiHandled);
-    bool generateMouseRelease(Modifier modifier,
+    bool generateMouseRelease(Modifiers modifier,
                               MouseButton button,
                               CellLocation pos,
                               PixelCoordinate pixelPosition,
@@ -342,7 +477,7 @@ class InputGenerator
         }
     }
 
-    enum class MouseEventType
+    enum class MouseEventType : uint8_t
     {
         Press,
         Drag,
@@ -352,9 +487,19 @@ class InputGenerator
     /// Resets the input generator's state, as required by the RIS (hard reset) VT sequence.
     void reset();
 
+    [[nodiscard]] ExtendedKeyboardInputGenerator& keyboardProtocol() noexcept
+    {
+        return _keyboardInputGenerator;
+    }
+
+    [[nodiscard]] ExtendedKeyboardInputGenerator const& keyboardProtocol() const noexcept
+    {
+        return _keyboardInputGenerator;
+    }
+
   private:
     bool generateMouse(MouseEventType eventType,
-                       Modifier modifier,
+                       Modifiers modifier,
                        MouseButton button,
                        CellLocation pos,
                        PixelCoordinate pixelPosition,
@@ -382,8 +527,6 @@ class InputGenerator
 
     // private fields
     //
-    KeyMode _cursorKeysMode = KeyMode::Normal;
-    KeyMode _numpadKeysMode = KeyMode::Normal;
     bool _bracketedPaste = false;
     bool _generateFocusEvents = false;
     std::optional<MouseProtocol> _mouseProtocol = std::nullopt;
@@ -395,6 +538,7 @@ class InputGenerator
 
     std::set<MouseButton> _currentlyPressedMouseButtons {};
     CellLocation _currentMousePosition {}; // current mouse position
+    ExtendedKeyboardInputGenerator _keyboardInputGenerator {};
 };
 
 inline std::string to_string(InputGenerator::MouseEventType value)
@@ -408,222 +552,266 @@ inline std::string to_string(InputGenerator::MouseEventType value)
     return "???";
 }
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
+// {{{ fmtlib custom formatter support
 
 template <>
-struct formatter<terminal::MouseProtocol>
+struct std::formatter<vtbackend::KeyboardEventType>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::KeyboardEventType value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(terminal::MouseProtocol value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::MouseProtocol::X10: return fmt::format_to(ctx.out(), "X10");
-            case terminal::MouseProtocol::HighlightTracking:
-                return fmt::format_to(ctx.out(), "HighlightTracking");
-            case terminal::MouseProtocol::ButtonTracking: return fmt::format_to(ctx.out(), "ButtonTracking");
-            case terminal::MouseProtocol::NormalTracking: return fmt::format_to(ctx.out(), "NormalTracking");
-            case terminal::MouseProtocol::AnyEventTracking:
-                return fmt::format_to(ctx.out(), "AnyEventTracking");
+            case vtbackend::KeyboardEventType::Press: name = "Press"; break;
+            case vtbackend::KeyboardEventType::Repeat: name = "Repeat"; break;
+            case vtbackend::KeyboardEventType::Release: name = "Release"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::Modifier>
+struct std::formatter<vtbackend::KeyboardEventFlag>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::KeyboardEventFlag value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::Modifier modifier, FormatContext& ctx)
-    {
-        std::string s;
-        auto const advance = [&](bool cond, std::string_view text) {
-            if (!cond)
-                return;
-            if (!s.empty())
-                s += ',';
-            s += text;
-        };
-        advance(modifier.alt(), "Alt");
-        advance(modifier.shift(), "Shift");
-        advance(modifier.control(), "Control");
-        advance(modifier.meta(), "Meta");
-        if (s.empty())
-            s = "None";
-        return fmt::format_to(ctx.out(), "{}", s);
-    }
-};
-
-template <>
-struct formatter<terminal::InputGenerator::MouseWheelMode>
-{
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
-    {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::InputGenerator::MouseWheelMode value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::InputGenerator::MouseWheelMode::Default:
-                return fmt::format_to(ctx.out(), "Default");
-            case terminal::InputGenerator::MouseWheelMode::NormalCursorKeys:
-                return fmt::format_to(ctx.out(), "NormalCursorKeys");
-            case terminal::InputGenerator::MouseWheelMode::ApplicationCursorKeys:
-                return fmt::format_to(ctx.out(), "ApplicationCursorKeys");
+                // clang-format off
+            case vtbackend::KeyboardEventFlag::None: name = "None"; break;
+            case vtbackend::KeyboardEventFlag::DisambiguateEscapeCodes: name = "DisambiguateEscapeCodes"; break;
+            case vtbackend::KeyboardEventFlag::ReportEventTypes: name = "ReportEventTypes"; break;
+            case vtbackend::KeyboardEventFlag::ReportAlternateKeys: name = "ReportAlternateKeys"; break;
+            case vtbackend::KeyboardEventFlag::ReportAllKeysAsEscapeCodes: name = "ReportAllKeysAsEscapeCodes"; break;
+            case vtbackend::KeyboardEventFlag::ReportAssociatedText: name = "ReportAssociatedText"; break;
+                // clang-format on
         }
-        return fmt::format_to(ctx.out(), "<{}>", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::KeyMode>
+struct std::formatter<vtbackend::MouseProtocol>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::MouseProtocol value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::KeyMode value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::KeyMode::Application: return fmt::format_to(ctx.out(), "Application");
-            case terminal::KeyMode::Normal: return fmt::format_to(ctx.out(), "Normal");
+            case vtbackend::MouseProtocol::X10: name = "X10"; break;
+            case vtbackend::MouseProtocol::HighlightTracking: name = "HighlightTracking"; break;
+            case vtbackend::MouseProtocol::ButtonTracking: name = "ButtonTracking"; break;
+            case vtbackend::MouseProtocol::NormalTracking: name = "NormalTracking"; break;
+            case vtbackend::MouseProtocol::AnyEventTracking: name = "AnyEventTracking"; break;
         }
-        return fmt::format_to(ctx.out(), "<{}>", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::MouseButton>
+struct std::formatter<vtbackend::Modifier>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::Modifier value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::MouseButton value, FormatContext& ctx)
-    {
+        std::string_view name;
         switch (value)
         {
-            case terminal::MouseButton::Left: return fmt::format_to(ctx.out(), "Left");
-            case terminal::MouseButton::Right: return fmt::format_to(ctx.out(), "Right");
-            case terminal::MouseButton::Middle: return fmt::format_to(ctx.out(), "Middle");
-            case terminal::MouseButton::Release: return fmt::format_to(ctx.out(), "Release");
-            case terminal::MouseButton::WheelUp: return fmt::format_to(ctx.out(), "WheelUp");
-            case terminal::MouseButton::WheelDown: return fmt::format_to(ctx.out(), "WheelDown");
+            case vtbackend::Modifier::None: name = "None"; break;
+            case vtbackend::Modifier::Shift: name = "Shift"; break;
+            case vtbackend::Modifier::Alt: name = "Alt"; break;
+            case vtbackend::Modifier::Control: name = "Control"; break;
+            case vtbackend::Modifier::Super: name = "Super"; break;
+            case vtbackend::Modifier::Hyper: name = "Hyper"; break;
+            case vtbackend::Modifier::Meta: name = "Meta"; break;
+            case vtbackend::Modifier::CapsLock: name = "CapsLock"; break;
+            case vtbackend::Modifier::NumLock: name = "NumLock"; break;
         }
-        return fmt::format_to(ctx.out(), "<{}>", unsigned(value));
+        return formatter<std::string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::MouseTransport>
+struct std::formatter<vtbackend::InputGenerator::MouseWheelMode>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::InputGenerator::MouseWheelMode value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::MouseTransport value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::MouseTransport::Default: return fmt::format_to(ctx.out(), "Default");
-            case terminal::MouseTransport::Extended: return fmt::format_to(ctx.out(), "Extended");
-            case terminal::MouseTransport::SGR: return fmt::format_to(ctx.out(), "SGR");
-            case terminal::MouseTransport::URXVT: return fmt::format_to(ctx.out(), "URXVT");
-            case terminal::MouseTransport::SGRPixels: return fmt::format_to(ctx.out(), "SGR-Pixels");
+            case vtbackend::InputGenerator::MouseWheelMode::Default: name = "Default"; break;
+            case vtbackend::InputGenerator::MouseWheelMode::NormalCursorKeys:
+                name = "NormalCursorKeys";
+                break;
+            case vtbackend::InputGenerator::MouseWheelMode::ApplicationCursorKeys:
+                name = "ApplicationCursorKeys";
+                break;
         }
-        return fmt::format_to(ctx.out(), "<{}>", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::Key>
+struct std::formatter<vtbackend::KeyMode>: public formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::KeyMode value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    constexpr auto format(terminal::Key value, FormatContext& ctx) const
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::Key::F1: return fmt::format_to(ctx.out(), "F1");
-            case terminal::Key::F2: return fmt::format_to(ctx.out(), "F2");
-            case terminal::Key::F3: return fmt::format_to(ctx.out(), "F3");
-            case terminal::Key::F4: return fmt::format_to(ctx.out(), "F4");
-            case terminal::Key::F5: return fmt::format_to(ctx.out(), "F5");
-            case terminal::Key::F6: return fmt::format_to(ctx.out(), "F6");
-            case terminal::Key::F7: return fmt::format_to(ctx.out(), "F7");
-            case terminal::Key::F8: return fmt::format_to(ctx.out(), "F8");
-            case terminal::Key::F9: return fmt::format_to(ctx.out(), "F9");
-            case terminal::Key::F10: return fmt::format_to(ctx.out(), "F10");
-            case terminal::Key::F11: return fmt::format_to(ctx.out(), "F11");
-            case terminal::Key::F12: return fmt::format_to(ctx.out(), "F12");
-            case terminal::Key::F13: return fmt::format_to(ctx.out(), "F13");
-            case terminal::Key::F14: return fmt::format_to(ctx.out(), "F14");
-            case terminal::Key::F15: return fmt::format_to(ctx.out(), "F15");
-            case terminal::Key::F16: return fmt::format_to(ctx.out(), "F16");
-            case terminal::Key::F17: return fmt::format_to(ctx.out(), "F17");
-            case terminal::Key::F18: return fmt::format_to(ctx.out(), "F18");
-            case terminal::Key::F19: return fmt::format_to(ctx.out(), "F19");
-            case terminal::Key::F20: return fmt::format_to(ctx.out(), "F20");
-            case terminal::Key::DownArrow: return fmt::format_to(ctx.out(), "DownArrow");
-            case terminal::Key::LeftArrow: return fmt::format_to(ctx.out(), "LeftArrow");
-            case terminal::Key::RightArrow: return fmt::format_to(ctx.out(), "RightArrow");
-            case terminal::Key::UpArrow: return fmt::format_to(ctx.out(), "UpArrow");
-            case terminal::Key::Insert: return fmt::format_to(ctx.out(), "Insert");
-            case terminal::Key::Delete: return fmt::format_to(ctx.out(), "Delete");
-            case terminal::Key::Home: return fmt::format_to(ctx.out(), "Home");
-            case terminal::Key::End: return fmt::format_to(ctx.out(), "End");
-            case terminal::Key::PageUp: return fmt::format_to(ctx.out(), "PageUp");
-            case terminal::Key::PageDown: return fmt::format_to(ctx.out(), "PageDown");
-            case terminal::Key::Numpad_NumLock: return fmt::format_to(ctx.out(), "Numpad_NumLock");
-            case terminal::Key::Numpad_Divide: return fmt::format_to(ctx.out(), "Numpad_Divide");
-            case terminal::Key::Numpad_Multiply: return fmt::format_to(ctx.out(), "Numpad_Multiply");
-            case terminal::Key::Numpad_Subtract: return fmt::format_to(ctx.out(), "Numpad_Subtract");
-            case terminal::Key::Numpad_CapsLock: return fmt::format_to(ctx.out(), "Numpad_CapsLock");
-            case terminal::Key::Numpad_Add: return fmt::format_to(ctx.out(), "Numpad_Add");
-            case terminal::Key::Numpad_Decimal: return fmt::format_to(ctx.out(), "Numpad_Decimal");
-            case terminal::Key::Numpad_Enter: return fmt::format_to(ctx.out(), "Numpad_Enter");
-            case terminal::Key::Numpad_Equal: return fmt::format_to(ctx.out(), "Numpad_Equal");
-            case terminal::Key::Numpad_0: return fmt::format_to(ctx.out(), "Numpad_0");
-            case terminal::Key::Numpad_1: return fmt::format_to(ctx.out(), "Numpad_1");
-            case terminal::Key::Numpad_2: return fmt::format_to(ctx.out(), "Numpad_2");
-            case terminal::Key::Numpad_3: return fmt::format_to(ctx.out(), "Numpad_3");
-            case terminal::Key::Numpad_4: return fmt::format_to(ctx.out(), "Numpad_4");
-            case terminal::Key::Numpad_5: return fmt::format_to(ctx.out(), "Numpad_5");
-            case terminal::Key::Numpad_6: return fmt::format_to(ctx.out(), "Numpad_6");
-            case terminal::Key::Numpad_7: return fmt::format_to(ctx.out(), "Numpad_7");
-            case terminal::Key::Numpad_8: return fmt::format_to(ctx.out(), "Numpad_8");
-            case terminal::Key::Numpad_9: return fmt::format_to(ctx.out(), "Numpad_9");
+            case vtbackend::KeyMode::Normal: name = "Normal"; break;
+            case vtbackend::KeyMode::Application: name = "Application"; break;
         }
-
-        return fmt::format_to(ctx.out(), "{}", (unsigned) value);
+        return formatter<string_view>::format(name, ctx);
     }
 };
-} // namespace fmt
+
+template <>
+struct std::formatter<vtbackend::MouseButton>: formatter<std::string_view>
+{
+    auto format(vtbackend::MouseButton value, auto& ctx) const
+    {
+        string_view name;
+        switch (value)
+        {
+            case vtbackend::MouseButton::Left: name = "Left"; break;
+            case vtbackend::MouseButton::Right: name = "Right"; break;
+            case vtbackend::MouseButton::Middle: name = "Middle"; break;
+            case vtbackend::MouseButton::Release: name = "Release"; break;
+            case vtbackend::MouseButton::WheelUp: name = "WheelUp"; break;
+            case vtbackend::MouseButton::WheelDown: name = "WheelDown"; break;
+            case vtbackend::MouseButton::WheelLeft: name = "WheelLeft"; break;
+            case vtbackend::MouseButton::WheelRight: name = "WheelRight"; break;
+        }
+        return formatter<string_view>::format(name, ctx);
+    }
+};
+
+template <>
+struct std::formatter<vtbackend::MouseTransport>: formatter<std::string_view>
+{
+    auto format(vtbackend::MouseTransport value, auto& ctx) const
+    {
+        string_view name;
+        switch (value)
+        {
+            case vtbackend::MouseTransport::Default: name = "Default"; break;
+            case vtbackend::MouseTransport::Extended: name = "Extended"; break;
+            case vtbackend::MouseTransport::SGR: name = "SGR"; break;
+            case vtbackend::MouseTransport::URXVT: name = "URXVT"; break;
+            case vtbackend::MouseTransport::SGRPixels: name = "SGR-Pixels"; break;
+        }
+        return formatter<string_view>::format(name, ctx);
+    }
+};
+
+template <>
+struct std::formatter<vtbackend::Key>: formatter<std::string_view>
+{
+    auto format(vtbackend::Key value, auto& ctx) const
+    {
+        string_view name;
+        switch (value)
+        {
+            case vtbackend::Key::F1: name = "F1"; break;
+            case vtbackend::Key::F2: name = "F2"; break;
+            case vtbackend::Key::F3: name = "F3"; break;
+            case vtbackend::Key::F4: name = "F4"; break;
+            case vtbackend::Key::F5: name = "F5"; break;
+            case vtbackend::Key::F6: name = "F6"; break;
+            case vtbackend::Key::F7: name = "F7"; break;
+            case vtbackend::Key::F8: name = "F8"; break;
+            case vtbackend::Key::F9: name = "F9"; break;
+            case vtbackend::Key::F10: name = "F10"; break;
+            case vtbackend::Key::F11: name = "F11"; break;
+            case vtbackend::Key::F12: name = "F12"; break;
+            case vtbackend::Key::F13: name = "F13"; break;
+            case vtbackend::Key::F14: name = "F14"; break;
+            case vtbackend::Key::F15: name = "F15"; break;
+            case vtbackend::Key::F16: name = "F16"; break;
+            case vtbackend::Key::F17: name = "F17"; break;
+            case vtbackend::Key::F18: name = "F18"; break;
+            case vtbackend::Key::F19: name = "F19"; break;
+            case vtbackend::Key::F20: name = "F20"; break;
+            case vtbackend::Key::F21: name = "F21"; break;
+            case vtbackend::Key::F22: name = "F22"; break;
+            case vtbackend::Key::F23: name = "F23"; break;
+            case vtbackend::Key::F24: name = "F24"; break;
+            case vtbackend::Key::F25: name = "F25"; break;
+            case vtbackend::Key::F26: name = "F26"; break;
+            case vtbackend::Key::F27: name = "F27"; break;
+            case vtbackend::Key::F28: name = "F28"; break;
+            case vtbackend::Key::F29: name = "F29"; break;
+            case vtbackend::Key::F30: name = "F30"; break;
+            case vtbackend::Key::F31: name = "F31"; break;
+            case vtbackend::Key::F32: name = "F32"; break;
+            case vtbackend::Key::F33: name = "F33"; break;
+            case vtbackend::Key::F34: name = "F34"; break;
+            case vtbackend::Key::F35: name = "F35"; break;
+            case vtbackend::Key::Escape: name = "Escape"; break;
+            case vtbackend::Key::Enter: name = "Enter"; break;
+            case vtbackend::Key::Tab: name = "Tab"; break;
+            case vtbackend::Key::Backspace: name = "Backspace"; break;
+            case vtbackend::Key::DownArrow: name = "DownArrow"; break;
+            case vtbackend::Key::LeftArrow: name = "LeftArrow"; break;
+            case vtbackend::Key::RightArrow: name = "RightArrow"; break;
+            case vtbackend::Key::UpArrow: name = "UpArrow"; break;
+            case vtbackend::Key::Insert: name = "Insert"; break;
+            case vtbackend::Key::Delete: name = "Delete"; break;
+            case vtbackend::Key::Home: name = "Home"; break;
+            case vtbackend::Key::End: name = "End"; break;
+            case vtbackend::Key::PageUp: name = "PageUp"; break;
+            case vtbackend::Key::PageDown: name = "PageDown"; break;
+            case vtbackend::Key::MediaPlay: name = "MediaPlay"; break;
+            case vtbackend::Key::MediaStop: name = "MediaStop"; break;
+            case vtbackend::Key::MediaPrevious: name = "MediaPrevious"; break;
+            case vtbackend::Key::MediaNext: name = "MediaNext"; break;
+            case vtbackend::Key::MediaPause: name = "MediaPause"; break;
+            case vtbackend::Key::MediaTogglePlayPause: name = "MediaTogglePlayPause"; break;
+            case vtbackend::Key::VolumeDown: name = "VolumeDown"; break;
+            case vtbackend::Key::VolumeUp: name = "VolumeUp"; break;
+            case vtbackend::Key::VolumeMute: name = "VolumeMute"; break;
+            case vtbackend::Key::LeftShift: name = "LeftShift"; break;
+            case vtbackend::Key::RightShift: name = "RightShift"; break;
+            case vtbackend::Key::LeftControl: name = "LeftControl"; break;
+            case vtbackend::Key::RightControl: name = "RightControl"; break;
+            case vtbackend::Key::LeftAlt: name = "LeftAlt"; break;
+            case vtbackend::Key::RightAlt: name = "RightAlt"; break;
+            case vtbackend::Key::LeftSuper: name = "LeftSuper"; break;
+            case vtbackend::Key::RightSuper: name = "RightSuper"; break;
+            case vtbackend::Key::LeftHyper: name = "LeftHyper"; break;
+            case vtbackend::Key::RightHyper: name = "RightHyper"; break;
+            case vtbackend::Key::LeftMeta: name = "LeftMeta"; break;
+            case vtbackend::Key::RightMeta: name = "RightMeta"; break;
+            case vtbackend::Key::IsoLevel3Shift: name = "IsoLevel3Shift"; break;
+            case vtbackend::Key::IsoLevel5Shift: name = "IsoLevel5Shift"; break;
+            case vtbackend::Key::CapsLock: name = "CapsLock"; break;
+            case vtbackend::Key::ScrollLock: name = "ScrollLock"; break;
+            case vtbackend::Key::NumLock: name = "NumLock"; break;
+            case vtbackend::Key::PrintScreen: name = "PrintScreen"; break;
+            case vtbackend::Key::Pause: name = "Pause"; break;
+            case vtbackend::Key::Menu: name = "Menu"; break;
+            case vtbackend::Key::Numpad_Divide: name = "Numpad_Divide"; break;
+            case vtbackend::Key::Numpad_Multiply: name = "Numpad_Multiply"; break;
+            case vtbackend::Key::Numpad_Subtract: name = "Numpad_Subtract"; break;
+            case vtbackend::Key::Numpad_Add: name = "Numpad_Add"; break;
+            case vtbackend::Key::Numpad_Decimal: name = "Numpad_Decimal"; break;
+            case vtbackend::Key::Numpad_Enter: name = "Numpad_Enter"; break;
+            case vtbackend::Key::Numpad_Equal: name = "Numpad_Equal"; break;
+            case vtbackend::Key::Numpad_0: name = "Numpad_0"; break;
+            case vtbackend::Key::Numpad_1: name = "Numpad_1"; break;
+            case vtbackend::Key::Numpad_2: name = "Numpad_2"; break;
+            case vtbackend::Key::Numpad_3: name = "Numpad_3"; break;
+            case vtbackend::Key::Numpad_4: name = "Numpad_4"; break;
+            case vtbackend::Key::Numpad_5: name = "Numpad_5"; break;
+            case vtbackend::Key::Numpad_6: name = "Numpad_6"; break;
+            case vtbackend::Key::Numpad_7: name = "Numpad_7"; break;
+            case vtbackend::Key::Numpad_8: name = "Numpad_8"; break;
+            case vtbackend::Key::Numpad_9: name = "Numpad_9"; break;
+        }
+        return formatter<string_view>::format(name, ctx);
+    }
+};
+// }}}

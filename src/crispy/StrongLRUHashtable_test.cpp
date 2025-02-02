@@ -1,20 +1,9 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+#include <crispy/StrongHash.h>
 #include <crispy/StrongLRUHashtable.h>
 #include <crispy/utils.h>
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <iostream>
 #include <string_view>
@@ -27,9 +16,9 @@ namespace
 {
 // simple 32-bit hash
 template <typename T>
-inline StrongHash h(T v)
+inline strong_hash h(T v)
 {
-    return StrongHash(0, 0, 0, static_cast<uint32_t>(v));
+    return strong_hash(0, 0, 0, static_cast<uint32_t>(v));
 }
 
 template <typename T>
@@ -47,9 +36,9 @@ inline string sh(Value first, Value second, Values... remaining)
 }
 
 template <typename T>
-StrongHash collidingHash(T v) noexcept
+strong_hash collidingHash(T v) noexcept
 {
-    return StrongHash(0, 0, static_cast<uint32_t>(v), 0);
+    return strong_hash(0, 0, static_cast<uint32_t>(v), 0);
 }
 
 template <typename T>
@@ -67,15 +56,16 @@ inline string ch(Value first, Value second, Values... remaining)
 }
 } // namespace
 
-TEST_CASE("StrongHash", "")
+// NOLINTBEGIN(misc-const-correctness,readability-function-cognitive-complexity)
+TEST_CASE("strong_hash", "")
 {
-    auto empty = StrongHash::compute("");
-    auto a = StrongHash::compute("A");
-    auto b = StrongHash::compute("AB");
-    auto c = StrongHash::compute("ABC");
-    auto d = StrongHash::compute("ABCD");
-    auto e = StrongHash::compute("ABCDE");
-    auto f = StrongHash::compute("ABCDEF");
+    auto empty = strong_hash::compute("");
+    auto a = strong_hash::compute("A");
+    auto b = strong_hash::compute("AB");
+    auto c = strong_hash::compute("ABC");
+    auto d = strong_hash::compute("ABCD");
+    auto e = strong_hash::compute("ABCDE");
+    auto f = strong_hash::compute("ABCDEF");
 
     REQUIRE(a != empty);
     REQUIRE(a != b);
@@ -85,9 +75,9 @@ TEST_CASE("StrongHash", "")
     REQUIRE(a != f);
 }
 
-TEST_CASE("StrongLRUHashtable.operator_index", "")
+TEST_CASE("strong_lru_hashtable.operator_index", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
 
     cache[h(1)] = 2;
@@ -115,9 +105,9 @@ TEST_CASE("StrongLRUHashtable.operator_index", "")
     REQUIRE(joinHumanReadable(cache.hashes()) == sh(6, 5, 4, 3));
 }
 
-TEST_CASE("StrongLRUHashtable.at", "")
+TEST_CASE("strong_lru_hashtable.at", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = 2 * i;
@@ -127,9 +117,9 @@ TEST_CASE("StrongLRUHashtable.at", "")
     CHECK_NOTHROW(cache.at(h(1)));
 }
 
-TEST_CASE("StrongLRUHashtable.clear", "[lrucache]")
+TEST_CASE("strong_lru_hashtable.clear", "[lrucache]")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = 2 * i;
@@ -140,9 +130,9 @@ TEST_CASE("StrongLRUHashtable.clear", "[lrucache]")
     CHECK(cache.size() == 0);
 }
 
-TEST_CASE("StrongLRUHashtable.touch", "")
+TEST_CASE("strong_lru_hashtable.touch", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = 2 * i;
@@ -165,9 +155,9 @@ TEST_CASE("StrongLRUHashtable.touch", "")
     REQUIRE(joinHumanReadable(cache.hashes()) == sh(1, 3, 4, 2));
 }
 
-TEST_CASE("StrongLRUHashtable.contains", "")
+TEST_CASE("strong_lru_hashtable.contains", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = i;
@@ -190,9 +180,9 @@ TEST_CASE("StrongLRUHashtable.contains", "")
     REQUIRE(joinHumanReadable(cache.hashes()) == sh(1, 3, 4, 2));
 }
 
-TEST_CASE("StrongLRUHashtable.try_emplace", "")
+TEST_CASE("strong_lru_hashtable.try_emplace", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 4 }, LRUCapacity { 2 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 4 }, lru_capacity { 2 });
     auto& cache = *cachePtr;
 
     auto rv = cache.try_emplace(h(2), [](auto) { return 4; });
@@ -213,9 +203,9 @@ TEST_CASE("StrongLRUHashtable.try_emplace", "")
     CHECK(cache.at(h(3)) == 6);
 }
 
-TEST_CASE("StrongLRUHashtable.try_get", "")
+TEST_CASE("strong_lru_hashtable.try_get", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = 2 * i;
@@ -244,9 +234,9 @@ TEST_CASE("StrongLRUHashtable.try_get", "")
     REQUIRE(joinHumanReadable(cache.hashes()) == sh(1, 3, 4, 2));
 }
 
-TEST_CASE("StrongLRUHashtable.get_or_try_emplace.recursive", "[lrucache]")
+TEST_CASE("strong_lru_hashtable.get_or_try_emplace.recursive", "[lrucache]")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 4 }, LRUCapacity { 2 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 4 }, lru_capacity { 2 });
     auto& cache = *cachePtr;
 
     int* b = nullptr;
@@ -262,9 +252,9 @@ TEST_CASE("StrongLRUHashtable.get_or_try_emplace.recursive", "[lrucache]")
     CHECK(*b == -2);
 }
 
-TEST_CASE("StrongLRUHashtable.get_or_try_emplace", "[lrucache]")
+TEST_CASE("strong_lru_hashtable.get_or_try_emplace", "[lrucache]")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 4 }, LRUCapacity { 2 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 4 }, lru_capacity { 2 });
     auto& cache = *cachePtr;
 
     int* a = nullptr;
@@ -300,29 +290,29 @@ TEST_CASE("StrongLRUHashtable.get_or_try_emplace", "[lrucache]")
     CHECK(joinHumanReadable(cache.hashes()) == sh(4, 3));
 }
 
-TEST_CASE("StrongLRUHashtable.get_or_emplace", "[lrucache]")
+TEST_CASE("strong_lru_hashtable.get_or_emplace", "[lrucache]")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 4 }, LRUCapacity { 2 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 4 }, lru_capacity { 2 });
     auto& cache = *cachePtr;
 
-    int& a = cache.get_or_emplace(h(2), [](auto) { return 4; });
+    int const& a = cache.get_or_emplace(h(2), [](auto) { return 4; });
     CHECK(a == 4);
     CHECK(cache.at(h(2)) == 4);
     CHECK(cache.size() == 1);
     CHECK(joinHumanReadable(cache.hashes()) == sh(2));
 
-    int& a2 = cache.get_or_emplace(h(2), [](auto) { return -4; });
+    int const& a2 = cache.get_or_emplace(h(2), [](auto) { return -4; });
     CHECK(a2 == 4);
     CHECK(cache.at(h(2)) == 4);
     CHECK(cache.size() == 1);
 
-    int& b = cache.get_or_emplace(h(3), [](auto) { return 6; });
+    int const& b = cache.get_or_emplace(h(3), [](auto) { return 6; });
     CHECK(b == 6);
     CHECK(cache.at(h(3)) == 6);
     CHECK(cache.size() == 2);
     CHECK(joinHumanReadable(cache.hashes()) == sh(3, 2));
 
-    int& c = cache.get_or_emplace(h(4), [](auto) { return 8; });
+    int const& c = cache.get_or_emplace(h(4), [](auto) { return 8; });
     CHECK(joinHumanReadable(cache.hashes()) == sh(4, 3));
     CHECK(c == 8);
     CHECK(cache.at(h(4)) == 8);
@@ -330,16 +320,16 @@ TEST_CASE("StrongLRUHashtable.get_or_emplace", "[lrucache]")
     CHECK(cache.contains(h(3)));
     CHECK_FALSE(cache.contains(h(2))); // thrown out
 
-    int& b2 = cache.get_or_emplace(h(3), [](auto) { return -3; });
+    int const& b2 = cache.get_or_emplace(h(3), [](auto) { return -3; });
     CHECK(joinHumanReadable(cache.hashes()) == sh(3, 4));
     CHECK(b2 == 6);
     CHECK(cache.at(h(3)) == 6);
     CHECK(cache.size() == 2);
 }
 
-TEST_CASE("StrongLRUHashtable.remove", "")
+TEST_CASE("strong_lru_hashtable.remove", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = 2 * i;
@@ -362,9 +352,9 @@ TEST_CASE("StrongLRUHashtable.remove", "")
     REQUIRE(joinHumanReadable(cache.hashes()).empty());
 }
 
-TEST_CASE("StrongLRUHashtable.insert_with_cache_collision", "")
+TEST_CASE("strong_lru_hashtable.insert_with_cache_collision", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
 
     cache[collidingHash(1)] = 1;
@@ -383,9 +373,9 @@ TEST_CASE("StrongLRUHashtable.insert_with_cache_collision", "")
     // cache.inspect(cout);
 }
 
-TEST_CASE("StrongLRUHashtable.remove_with_hashTable_lookup_collision", "")
+TEST_CASE("strong_lru_hashtable.remove_with_hashTable_lookup_collision", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[collidingHash(i)] = 2 * i;
@@ -408,17 +398,18 @@ TEST_CASE("StrongLRUHashtable.remove_with_hashTable_lookup_collision", "")
     REQUIRE(joinHumanReadable(cache.hashes()).empty());
 }
 
-TEST_CASE("StrongLRUHashtable.peek", "")
+TEST_CASE("strong_lru_hashtable.peek", "")
 {
-    auto cachePtr = StrongLRUHashtable<int>::create(StrongHashtableSize { 8 }, LRUCapacity { 4 });
+    auto cachePtr = strong_lru_hashtable<int>::create(strong_hashtable_size { 8 }, lru_capacity { 4 });
     auto& cache = *cachePtr;
     for (int i = 1; i <= 4; ++i)
         cache[h(i)] = 2 * i;
 
     for (int i = 1; i <= 4; ++i)
     {
-        INFO(fmt::format("i: {}", i))
+        INFO(std::format("i: {}", i));
         REQUIRE(cache.peek(h(1)) == 2);
         REQUIRE(joinHumanReadable(cache.hashes()) == sh(4, 3, 2, 1));
     }
 }
+// NOLINTEND(misc-const-correctness,readability-function-cognitive-complexity)

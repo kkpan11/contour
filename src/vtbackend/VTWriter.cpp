@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/VTWriter.h>
 
 #include <numeric>
@@ -19,7 +7,7 @@ using std::string;
 using std::string_view;
 using std::vector;
 
-namespace terminal
+namespace vtbackend
 {
 
 // TODO: compare with old sgr value set instead to be more generic in reusing stuff
@@ -75,14 +63,16 @@ string VTWriter::sgrFlush(vector<unsigned> const& sgr)
         return "";
 
     auto const params =
-        sgr.size() != 1 || sgr[0] != 0 ? accumulate(
-            begin(sgr),
-            end(sgr),
-            string {},
-            [](auto a, auto b) { return a.empty() ? fmt::format("{}", b) : fmt::format("{};{}", a, b); })
-                                       : string();
+        sgr.size() != 1 || sgr[0] != 0
+            ? accumulate(begin(sgr),
+                         end(sgr),
+                         string {},
+                         [](auto a, auto b) {
+                             return a.empty() ? std::format("{}", b) : std::format("{};{}", a, b);
+                         })
+            : string();
 
-    return fmt::format("\033[{}m", params);
+    return std::format("\033[{}m", params);
 }
 
 void VTWriter::sgrAddExplicit(unsigned n)
@@ -112,7 +102,7 @@ void VTWriter::sgrAdd(unsigned n)
         if (_sgr.empty() || _sgr.back() != n)
             _sgr.push_back(n);
 
-        if (_sgr.size() == maxParameterCount)
+        if (_sgr.size() == MaxParameterCount)
         {
             sgrFlush();
         }
@@ -199,7 +189,7 @@ void VTWriter::setBackgroundColor(Color color)
     }
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 void VTWriter::write(Line<Cell> const& line)
 {
     if (line.isTrivialBuffer())
@@ -215,7 +205,7 @@ void VTWriter::write(Line<Cell> const& line)
     {
         for (Cell const& cell: line.inflatedBuffer())
         {
-            if (cell.flags() & CellFlags::Bold)
+            if (cell.flags() & CellFlag::Bold)
                 sgrAdd(GraphicsRendition::Bold);
             else
                 sgrAdd(GraphicsRendition::Normal);
@@ -234,10 +224,10 @@ void VTWriter::write(Line<Cell> const& line)
     sgrAdd(GraphicsRendition::Reset);
 }
 
-} // namespace terminal
+} // namespace vtbackend
 
 #include <vtbackend/cell/CompactCell.h>
-template void terminal::VTWriter::write<terminal::CompactCell>(Line<CompactCell> const&);
+template void vtbackend::VTWriter::write<vtbackend::CompactCell>(Line<CompactCell> const&);
 
 #include <vtbackend/cell/SimpleCell.h>
-template void terminal::VTWriter::write<terminal::SimpleCell>(Line<SimpleCell> const&);
+template void vtbackend::VTWriter::write<vtbackend::SimpleCell>(Line<SimpleCell> const&);

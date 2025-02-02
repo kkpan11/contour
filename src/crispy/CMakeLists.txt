@@ -1,5 +1,3 @@
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/FilesystemResolver.cmake")
-
 if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
     set(FREEBSD TRUE)
 endif()
@@ -24,13 +22,15 @@ set(crispy_SOURCES
     compose.h
     defines.h
     escape.h
-    indexed.h
+    file_descriptor.h
+    flags.h
+    interpolated_string.cpp interpolated_string.h
     logstore.cpp logstore.h
     overloaded.h
     reference.h
     ring.h
-    stdfs.h
     times.h
+    utils.cpp utils.h
 )
 
 add_library(crispy-core STATIC ${crispy_SOURCES})
@@ -46,21 +46,21 @@ if(MSVC)
     target_compile_definitions(crispy-core PUBLIC NOMINMAX)
 endif()
 
-set(CRISPY_CORE_LIBS range-v3::range-v3 fmt::fmt-header-only unicode Microsoft.GSL::GSL)
-if(${USING_BOOST_FILESYSTEM})
-    target_compile_definitions(crispy-core PUBLIC USING_BOOST_FILESYSTEM=1)
-    list(APPEND CRISPY_CORE_LIBS Boost::filesystem)
-else()
-    list(APPEND CRISPY_CORE_LIBS ${FILESYSTEM_LIBS})
+set(CRISPY_CORE_LIBS range-v3::range-v3 unicode::unicode Microsoft.GSL::GSL boxed-cpp::boxed-cpp reflection-cpp::reflection-cpp)
+
+# if compiler is not MSVC
+if(NOT MSVC)
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL amd64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL AMD64)
+        target_compile_options(crispy-core PUBLIC -maes)
+    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64) # ARM64
+        target_compile_options(crispy-core PUBLIC -march=armv8-a+fp+simd+crypto+crc)
+    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL ARM64)
+        message(STATUS "Target architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+    else()
+        message(WARNING "Target architecture not detected: ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL amd64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL AMD64)
-    target_compile_options(crispy-core PUBLIC -maes)
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64) # ARM64
-    target_compile_options(crispy-core PUBLIC -march=armv8-a+fp+simd+crypto+crc)
-else()
-    message(WARNING "Target architecture not detected.")
-endif()
 target_compile_features(crispy-core PUBLIC cxx_std_17)
 target_link_libraries(crispy-core PUBLIC ${CRISPY_CORE_LIBS})
 target_include_directories(crispy-core PUBLIC
@@ -95,11 +95,10 @@ if(UNIX)
     check_include_files(unwind.h HAVE_UNWIND_H)
 
     # The following options are all important to get stacktrace dumping working
-    target_link_libraries(crispy-core PUBLIC dl)
+    target_link_libraries(crispy-core PUBLIC ${CMAKE_DL_LIBS})
     if(NOT(FREEBSD))
         target_link_options(crispy-core PUBLIC -rdynamic)
     endif()
-    target_compile_definitions(crispy-core PUBLIC BOOST_STACKTRACE_USE_ADDR2LINE=1)
     if(CONTOUR_STACKTRACE_ADDR2LINE)
         target_compile_definitions(crispy-core PUBLIC CONTOUR_STACKTRACE_ADDR2LINE=1)
     endif()
@@ -119,7 +118,7 @@ endif()
 # --------------------------------------------------------------------------------------------------------
 # crispy_test
 
-option(CRISPY_TESTING "Enables building of unittests for crispy library [default: ON]" ON)
+option(CRISPY_TESTING "Enables building of unittests for crispy library [default: ON]" ${CONTOUR_TESTING})
 if(CRISPY_TESTING)
     enable_testing()
     add_executable(crispy_test
@@ -130,16 +129,15 @@ if(CRISPY_TESTING)
         StrongLRUHashtable_test.cpp
         TrieMap_test.cpp
         base64_test.cpp
-        indexed_test.cpp
         compose_test.cpp
+        interpolated_string_test.cpp
         utils_test.cpp
+        result_test.cpp
         ring_test.cpp
         sort_test.cpp
-        test_main.cpp
         times_test.cpp
     )
-    target_link_libraries(crispy_test fmt::fmt-header-only range-v3::range-v3 Catch2::Catch2 crispy::core)
+target_link_libraries(crispy_test range-v3::range-v3 Catch2::Catch2WithMain crispy::core)
     add_test(crispy_test ./crispy_test)
 endif()
 message(STATUS "[crispy] Compile unit tests: ${CRISPY_TESTING}")
-

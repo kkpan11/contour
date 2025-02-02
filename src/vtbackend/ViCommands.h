@@ -1,29 +1,21 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <vtbackend/JumpHistory.h>
 #include <vtbackend/ViInputHandler.h>
+#include <vtbackend/primitives.h>
 
+#include <gsl/pointers>
+
+#include <list>
 #include <optional>
-#include <utility>
 
-namespace terminal
+namespace vtbackend
 {
 
 class Terminal;
 
-enum class JumpOver
+enum class JumpOver : uint8_t
 {
     Yes,
     No
@@ -47,6 +39,7 @@ class ViCommands: public ViInputHandler::Executor
     void select(TextObjectScope scope, TextObject textObject) override;
     void yank(TextObjectScope scope, TextObject textObject) override;
     void yank(ViMotion motion) override;
+    void open(TextObjectScope scope, TextObject textObject) override;
     void paste(unsigned count, bool stripped) override;
 
     void searchStart() override;
@@ -58,15 +51,19 @@ class ViCommands: public ViInputHandler::Executor
 
     void moveCursorTo(CellLocation position);
 
-    [[nodiscard]] CellLocation translateToCellLocation(ViMotion motion, unsigned count) const noexcept;
-    [[nodiscard]] CellLocationRange translateToCellRange(ViMotion motion, unsigned count) const noexcept;
+    [[nodiscard]] CellLocation translateToCellLocationAndRecord(ViMotion motion, unsigned count) noexcept;
+    [[nodiscard]] CellLocationRange translateToCellRange(ViMotion motion, unsigned count) noexcept;
     [[nodiscard]] CellLocationRange translateToCellRange(TextObjectScope scope,
                                                          TextObject textObject) const noexcept;
     [[nodiscard]] CellLocation prev(CellLocation location) const noexcept;
     [[nodiscard]] CellLocation next(CellLocation location) const noexcept;
     [[nodiscard]] CellLocation findMatchingPairFrom(CellLocation location) const noexcept;
-    [[nodiscard]] CellLocation findMatchingPairLeft(char left, char right, int initialDepth) const noexcept;
-    [[nodiscard]] CellLocation findMatchingPairRight(char left, char right, int initialDepth) const noexcept;
+    [[nodiscard]] CellLocation findMatchingPairLeft(char32_t left,
+                                                    char32_t right,
+                                                    int initialDepth) const noexcept;
+    [[nodiscard]] CellLocation findMatchingPairRight(char32_t left,
+                                                     char32_t right,
+                                                     int initialDepth) const noexcept;
     [[nodiscard]] CellLocationRange expandMatchingPair(TextObjectScope scope,
                                                        char left,
                                                        char right) const noexcept;
@@ -80,6 +77,10 @@ class ViCommands: public ViInputHandler::Executor
     [[nodiscard]] std::optional<CellLocation> toCharLeft(unsigned count) const noexcept;
     void executeYank(ViMotion motion, unsigned count);
     void executeYank(CellLocation from, CellLocation to);
+    void executeOpen(ViMotion motion, unsigned count);
+    void executeOpen(CellLocation from, CellLocation to);
+
+    std::string extractTextAndHighlightRange(CellLocation from, CellLocation to);
 
     /// Snaps the input location to the correct cell location if the input location is part of a wide char
     /// cell but not precisely the beginning cell location.
@@ -89,18 +90,19 @@ class ViCommands: public ViInputHandler::Executor
     /// any codepoints.
     [[nodiscard]] CellLocation snapToCellRight(CellLocation location) const noexcept;
 
-    [[nodiscard]] bool compareCellTextAt(CellLocation position, char codepoint) const noexcept;
-
+    [[nodiscard]] bool compareCellTextAt(CellLocation position, char32_t codepoint) const noexcept;
+    void addLineOffsetToJumpHistory(LineOffset offset) { _jumpHistory.addOffset(offset); }
     // Cursor offset into the grid.
     CellLocation cursorPosition {};
 
   private:
-    Terminal& _terminal;
+    gsl::not_null<Terminal*> _terminal;
     ViMode _lastMode = ViMode::Insert;
     CursorShape _lastCursorShape = CursorShape::Block;
     mutable char32_t _lastChar = U'\0';
     std::optional<ViMotion> _lastCharMotion = std::nullopt;
     bool _lastCursorVisible = true;
+    JumpHistory _jumpHistory;
 };
 
-} // namespace terminal
+} // namespace vtbackend

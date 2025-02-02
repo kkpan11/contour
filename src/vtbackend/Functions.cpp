@@ -1,30 +1,16 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Color.h>
 #include <vtbackend/Functions.h>
 
 #include <crispy/algorithm.h>
 #include <crispy/escape.h>
-#include <crispy/indexed.h>
 #include <crispy/sort.h>
 #include <crispy/times.h>
 #include <crispy/utils.h>
 
-#include <fmt/format.h>
-
 #include <algorithm>
 #include <array>
+#include <format>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -41,23 +27,20 @@ using std::string;
 using std::string_view;
 using std::stringstream;
 
-namespace terminal
+namespace vtbackend
 {
 
-FunctionDefinition const* select(FunctionSelector const& selector) noexcept
+Function const* select(FunctionSelector const& selector,
+                       gsl::span<Function const> availableDefinitions) noexcept
 {
-    auto static const& funcs = functions();
-
-    // std::cout << fmt::format("select: {}\n", selector);
-
     auto a = size_t { 0 };
-    auto b = funcs.size() - 1;
+    auto b = availableDefinitions.size() - 1;
     while (a <= b)
     {
         auto const i = (a + b) / 2;
-        auto const& I = funcs[i];
-        auto const rel = compare(selector, I);
-        // std::cout << fmt::format(" - a:{:>2} b:{:>2} i:{} rel:{} I: {}\n", a, b, i, rel < 0 ? '<' : rel > 0
+        auto const& fui = availableDefinitions[i];
+        auto const rel = compare(selector, fui);
+        // std::cout << std::format(" - a:{:>2} b:{:>2} i:{} rel:{} I: {}\n", a, b, i, rel < 0 ? '<' : rel > 0
         // ? '>' : '=', I);
         if (rel > 0)
             a = i + 1;
@@ -68,9 +51,9 @@ FunctionDefinition const* select(FunctionSelector const& selector) noexcept
             b = i - 1;
         }
         else
-            return &I;
+            return &fui;
     }
     return nullptr;
 }
 
-} // namespace terminal
+} // namespace vtbackend

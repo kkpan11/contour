@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2022 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/CellFlags.h>
@@ -21,13 +9,13 @@
 #include <vtbackend/Hyperlink.h>
 #include <vtbackend/Image.h>
 
-#include <string>
-#include <utility>
-
 #include <libunicode/convert.h>
 #include <libunicode/width.h>
 
-namespace terminal
+#include <string>
+#include <utility>
+
+namespace vtbackend
 {
 
 /// Terminal Cell, optimized for use with the alternate screen.
@@ -57,6 +45,9 @@ class SimpleCell
     [[nodiscard]] char32_t codepoint(size_t index) const noexcept;
     [[nodiscard]] size_t codepointCount() const noexcept;
 
+    [[nodiscard]] char32_t operator[](size_t i) const noexcept { return codepoint(i); }
+    [[nodiscard]] size_t size() const noexcept { return codepointCount(); }
+
     void setCharacter(char32_t codepoint);
     int appendCharacter(char32_t codepoint);
 
@@ -67,7 +58,7 @@ class SimpleCell
 
     [[nodiscard]] CellFlags flags() const noexcept;
     [[nodiscard]] bool isFlagEnabled(CellFlags flags) const noexcept;
-    void resetFlags(CellFlags flags = CellFlags::None) noexcept;
+    void resetFlags(CellFlags flags = CellFlag::None) noexcept;
 
     void setGraphicsRendition(GraphicsRendition sgr) noexcept;
     void setForegroundColor(Color color) noexcept;
@@ -88,7 +79,6 @@ class SimpleCell
   private:
     std::u32string _codepoints {};
     GraphicsAttributes _graphicsAttributes {};
-    CellFlags _flags {};
     uint8_t _width = 1;
     HyperlinkId _hyperlink {};
     std::shared_ptr<ImageFragment> _imageFragment {};
@@ -171,7 +161,7 @@ inline void SimpleCell::setCharacter(char32_t codepoint)
     if (codepoint)
     {
         _codepoints.push_back(codepoint);
-        setWidth(static_cast<uint8_t>(std::max(unicode::width(codepoint), 1)));
+        setWidth(std::max<uint8_t>(unicode::width(codepoint), 1));
     }
     else
         setWidth(1);
@@ -205,17 +195,17 @@ inline void SimpleCell::setWidth(uint8_t newWidth) noexcept
 
 inline CellFlags SimpleCell::flags() const noexcept
 {
-    return _flags;
+    return _graphicsAttributes.flags;
 }
 
 inline bool SimpleCell::isFlagEnabled(CellFlags testFlags) const noexcept
 {
-    return _flags & testFlags;
+    return _graphicsAttributes.flags.contains(testFlags);
 }
 
 inline void SimpleCell::resetFlags(CellFlags flags) noexcept
 {
-    _flags = flags;
+    _graphicsAttributes.flags = flags;
 }
 
 inline void SimpleCell::setGraphicsRendition(GraphicsRendition sgr) noexcept
@@ -276,15 +266,4 @@ inline void SimpleCell::setHyperlink(HyperlinkId hyperlink) noexcept
 
 // }}}
 
-// {{{ Optimized version for helpers from CellUtil
-namespace CellUtil
-{
-    inline bool beginsWith(std::u32string_view text, SimpleCell const& cell) noexcept
-    {
-        assert(!text.empty());
-        return text == cell.codepoints();
-    }
-} // namespace CellUtil
-// }}}
-
-} // namespace terminal
+} // namespace vtbackend

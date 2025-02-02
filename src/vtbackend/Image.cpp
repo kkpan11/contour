@@ -1,17 +1,7 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Image.h>
+
+#include <crispy/StrongLRUHashtable.h>
 
 #include <algorithm>
 #include <memory>
@@ -24,10 +14,7 @@ using std::ostream;
 using std::shared_ptr;
 using std::string;
 
-using crispy::LRUCapacity;
-using crispy::StrongHashtableSize;
-
-namespace terminal
+namespace vtbackend
 {
 
 ImageStats& ImageStats::get()
@@ -54,8 +41,8 @@ ImageFragment::~ImageFragment()
 
 ImagePool::ImagePool(OnImageRemove onImageRemove, ImageId nextImageId):
     _nextImageId { nextImageId },
-    _imageNameToImageCache { StrongHashtableSize { 1024 },
-                             LRUCapacity { 100 },
+    _imageNameToImageCache { crispy::strong_hashtable_size { 1024 },
+                             crispy::lru_capacity { 100 },
                              "ImagePool name-to-image mappings" },
     _onImageRemove { std::move(onImageRemove) }
 {
@@ -68,17 +55,17 @@ Image::Data RasterizedImage::fragment(CellLocation pos) const
 
     auto const xOffset = pos.column * unbox<int>(_cellSize.width);
     auto const yOffset = pos.line * unbox<int>(_cellSize.height);
-    auto const pixelOffset = CellLocation { yOffset, xOffset };
+    auto const pixelOffset = CellLocation { .line = yOffset, .column = xOffset };
 
     Image::Data fragData;
     fragData.resize(_cellSize.area() * 4); // RGBA
     auto const availableWidth =
-        min(unbox<int>(_image->width()) - *pixelOffset.column, unbox<int>(_cellSize.width));
+        min(unbox<int>(_image->width()) - unbox(pixelOffset.column), unbox<int>(_cellSize.width));
     auto const availableHeight =
-        min(unbox<int>(_image->height()) - *pixelOffset.line, unbox<int>(_cellSize.height));
+        min(unbox<int>(_image->height()) - unbox(pixelOffset.line), unbox<int>(_cellSize.height));
 
     // auto const availableSize = Size{availableWidth, availableHeight};
-    // std::cout << fmt::format(
+    // std::cout << std::format(
     //     "RasterizedImage.fragment({}): pixelOffset={}, cellSize={}/{}\n",
     //     pos,
     //     pixelOffset,
@@ -89,7 +76,7 @@ Image::Data RasterizedImage::fragment(CellLocation pos) const
     // auto const fitsWidth = pixelOffset.column + _cellSize.width < _image.get().width();
     // auto const fitsHeight = pixelOffset.line + _cellSize.height < _image.get().height();
     // if (!fitsWidth || !fitsHeight)
-    //     std::cout << fmt::format("ImageFragment: out of bounds{}{} ({}x{}); {}\n",
+    //     std::cout << std::format("ImageFragment: out of bounds{}{} ({}x{}); {}\n",
     //             fitsWidth ? "" : " (width)",
     //             fitsHeight ? "" : " (height)",
     //             availableWidth,
@@ -103,9 +90,9 @@ Image::Data RasterizedImage::fragment(CellLocation pos) const
     for (int y = 0; y < availableHeight; ++y)
     {
         auto const startOffset = static_cast<size_t>(
-            ((*pixelOffset.line + y) * unbox<int>(_image->width()) + *pixelOffset.column) * 4);
+            ((pixelOffset.line + y) * unbox<int>(_image->width()) + unbox(pixelOffset.column)) * 4);
         const auto* const source = &_image->data()[startOffset];
-        target = copy(source, source + static_cast<ptrdiff_t>(availableWidth) * 4, target);
+        target = copy(source, source + (static_cast<ptrdiff_t>(availableWidth) * 4), target);
 
         // fill vertical gap on right
         for (int x = availableWidth; x < unbox<int>(_cellSize.width); ++x)
@@ -137,14 +124,12 @@ shared_ptr<Image const> ImagePool::create(ImageFormat format, ImageSize size, Im
     return make_shared<Image>(id, format, std::move(data), size, _onImageRemove);
 }
 
-// TODO: Why on earth does this function exist if it's not relevant to ImagePool? Fix this mess.
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-shared_ptr<RasterizedImage> ImagePool::rasterize(shared_ptr<Image const> image,
-                                                 ImageAlignment alignmentPolicy,
-                                                 ImageResize resizePolicy,
-                                                 RGBAColor defaultColor,
-                                                 GridSize cellSpan,
-                                                 ImageSize cellSize)
+shared_ptr<RasterizedImage> rasterize(shared_ptr<Image const> image,
+                                      ImageAlignment alignmentPolicy,
+                                      ImageResize resizePolicy,
+                                      RGBAColor defaultColor,
+                                      GridSize cellSpan,
+                                      ImageSize cellSize)
 {
     return make_shared<RasterizedImage>(
         std::move(image), alignmentPolicy, resizePolicy, defaultColor, cellSpan, cellSize);
@@ -176,8 +161,8 @@ void ImagePool::clear()
 void ImagePool::inspect(ostream& os) const
 {
     os << "Image pool:\n";
-    os << fmt::format("global image stats: {}\n", ImageStats::get());
+    os << std::format("global image stats: {}\n", ImageStats::get());
     _imageNameToImageCache.inspect(os);
 }
 
-} // namespace terminal
+} // namespace vtbackend

@@ -1,9 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <functional>
 #include <string>
 
-namespace terminal
+namespace vtbackend
 {
 
 /// VT parser protocol extension.
@@ -39,4 +40,4 @@ class SimpleStringCollector: public ParserExtension
     std::function<void(std::string_view)> _done;
 };
 
-} // namespace terminal
+} // namespace vtbackend

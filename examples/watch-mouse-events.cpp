@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2022 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/InputGenerator.h>
 #include <vtbackend/Sequence.h>
 #include <vtbackend/primitives.h>
@@ -20,9 +8,8 @@
 
 #include <vtpty/UnixUtils.h>
 
-#include <fmt/format.h>
-
 #include <csignal>
+#include <format>
 #include <iostream>
 
 #if defined(__APPLE__)
@@ -39,9 +26,9 @@ using namespace std;
 namespace
 {
 
-using namespace terminal;
+using namespace vtbackend;
 
-struct BasicParserEvents: public NullParserEvents // {{{
+struct BasicParserEvents: public vtparser::NullParserEvents // {{{
 {
     Sequence _sequence {};
     SequenceParameterBuilder _parameterBuilder;
@@ -118,7 +105,7 @@ struct BasicParserEvents: public NullParserEvents // {{{
 
     void dispatchOSC() override
     {
-        auto const [code, skipCount] = parser::extractCodePrefix(_sequence.intermediateCharacters());
+        auto const [code, skipCount] = vtparser::extractCodePrefix(_sequence.intermediateCharacters());
         _parameterBuilder.set(static_cast<Sequence::Parameter>(code));
         _sequence.intermediateCharacters().erase(0, skipCount);
         executeSequenceHandler();
@@ -144,15 +131,16 @@ struct MouseTracker final: public BasicParserEvents
     bool uiHandledHint = false;
     termios savedTermios;
 
-    parser::Parser<ParserEvents> vtInputParser;
+    vtparser::Parser<vtparser::ParserEvents> vtInputParser;
 
-    MouseTracker(): savedTermios { detail::getTerminalSettings(STDIN_FILENO) }, vtInputParser { *this }
+    MouseTracker() noexcept:
+        savedTermios { vtpty::util::getTerminalSettings(STDIN_FILENO) }, vtInputParser { *this }
     {
         auto tio = savedTermios;
         tio.c_lflag &= static_cast<tcflag_t>(~(ECHO | ICANON));
         tio.c_cc[VMIN] = 1;  // Report as soon as 1 character is available.
         tio.c_cc[VTIME] = 0; // Disable timeout (no need).
-        detail::applyTerminalSettings(STDIN_FILENO, tio);
+        vtpty::util::applyTerminalSettings(STDIN_FILENO, tio);
 
         writeToTTY("\033[?2029h"); // enable passive mouse reporting
         writeToTTY("\033[?2030h"); // enable text selection reporting
@@ -166,7 +154,7 @@ struct MouseTracker final: public BasicParserEvents
 
     ~MouseTracker() override
     {
-        detail::applyTerminalSettings(STDIN_FILENO, savedTermios);
+        vtpty::util::applyTerminalSettings(STDIN_FILENO, savedTermios);
         writeToTTY("\033[?2029l"); // disable passive mouse reporting
         writeToTTY("\033[?2030l"); // disable text selection reporting
         writeToTTY("\033[?25h");   // show text cursor
@@ -199,7 +187,7 @@ struct MouseTracker final: public BasicParserEvents
         checkPassiveMouseTrackingSupport();
         while (_running)
         {
-            writeToTTY(fmt::format("\rMouse position {}:{}, 0x{:X}, {} ({})\033[K",
+            writeToTTY(std::format("\rMouse position {}:{}, 0x{:X}, {} ({})\033[K",
                                    line,
                                    column,
                                    mouseButton,
@@ -225,7 +213,7 @@ struct MouseTracker final: public BasicParserEvents
             }
         }();
 
-        return fmt::format("{}; {} .. {}", mode, selection.from, selection.to);
+        return std::format("{}; {} .. {}", mode, selection.from, selection.to);
     }
 
     void checkPassiveMouseTrackingSupport()
@@ -236,10 +224,10 @@ struct MouseTracker final: public BasicParserEvents
 
         auto const state = _decrpm.value().second;
         auto const supported = state == 1 || state == 2;
-        fmt::print("Passive mouse tracking: {}\n", supported ? "supported" : "not supported");
+        std::cout << std::format("Passive mouse tracking: {}\n", supported ? "supported" : "not supported");
     }
 
-    void writeToTTY(string_view s) { ::write(STDOUT_FILENO, s.data(), s.size()); }
+    void writeToTTY(string_view s) noexcept { ::write(STDOUT_FILENO, s.data(), s.size()); }
 
     void processInput()
     {

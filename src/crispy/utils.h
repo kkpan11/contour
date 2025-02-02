@@ -1,22 +1,27 @@
 #pragma once
 
+#include <crispy/defines.h>
 #include <crispy/escape.h>
-#include <crispy/stdfs.h>
-
-#include <fmt/format.h>
 
 #include <range/v3/view/iota.hpp>
 #include <range/v3/view/transform.hpp>
 
 #include <algorithm>
+#include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#if defined(CRISPY_CONCEPTS_SUPPORTED)
+    #include <concepts>
+#endif
 
 namespace crispy
 {
@@ -55,20 +60,20 @@ constexpr bool ascending(T low, T val, T high) noexcept
 
 constexpr unsigned long strntoul(char const* data, size_t count, char const** eptr, unsigned base = 10)
 {
-    constexpr auto values = std::string_view { "0123456789ABCDEF" };
-    constexpr auto lowerLetters = std::string_view { "abcdef" };
+    constexpr auto Values = std::string_view { "0123456789ABCDEF" };
+    constexpr auto LowerLetters = std::string_view { "abcdef" };
 
     unsigned long result = 0;
     while (count != 0)
     {
-        if (auto const i = values.find(*data); i != std::string_view::npos && i < base)
+        if (auto const i = Values.find(*data); i != std::string_view::npos && i < base)
         {
             result *= base;
             result += static_cast<unsigned long>(i);
             ++data;
             --count;
         }
-        else if (auto const i = lowerLetters.find(*data); i != std::string_view::npos && base == 16)
+        else if (auto const i = LowerLetters.find(*data); i != std::string_view::npos && base == 16)
         {
             result *= base;
             result += static_cast<unsigned long>(i);
@@ -93,7 +98,7 @@ std::string joinHumanReadable(std::vector<T> const& list, std::string_view sep =
     {
         if (i != 0)
             result << sep;
-        result << fmt::format("{}", list[i]);
+        result << std::format("{}", T(list[i]));
     }
     return result.str();
 }
@@ -106,7 +111,7 @@ std::string joinHumanReadableQuoted(std::vector<T> const& list, U sep = ", ")
     {
         if (i != 0)
             result << sep;
-        result << '"' << crispy::escape(fmt::format("{}", list[i])) << '"';
+        result << '"' << crispy::escape(std::format("{}", list[i])) << '"';
     }
     return result.str();
 }
@@ -118,21 +123,21 @@ constexpr inline bool split(std::basic_string_view<T> text, T delimiter, Callbac
     size_t b = 0;
     while ((b = text.find(delimiter, a)) != std::basic_string_view<T>::npos)
     {
-        if (!(callback(text.substr(a, b - a))))
+        if (!(std::forward<Callback>(callback)(text.substr(a, b - a))))
             return false;
 
         a = b + 1;
     }
 
     if (a < text.size())
-        return callback(text.substr(a));
+        return std::forward<Callback>(callback)(text.substr(a));
 
     return true;
 }
 
 template <typename T>
-constexpr inline auto split(std::basic_string_view<T> text, T delimiter)
-    -> std::vector<std::basic_string_view<T>>
+constexpr inline auto split(std::basic_string_view<T> text,
+                            T delimiter) -> std::vector<std::basic_string_view<T>>
 {
     std::vector<std::basic_string_view<T>> output {};
     split(text, delimiter, [&](auto value) {
@@ -158,13 +163,13 @@ inline std::unordered_map<std::string_view, std::string_view> splitKeyValuePairs
 
     std::unordered_map<std::string_view, std::string_view> params;
 
-    size_t i_beg = 0;
+    size_t iBeg = 0;
     size_t i = text.find(delimiter);
 
     // e.g.: foo=bar::foo2=bar2:....
     while (i != std::string_view::npos)
     {
-        std::string_view param(text.data() + i_beg, i - i_beg);
+        auto const param = std::string_view(text.data() + iBeg, i - iBeg);
         if (auto const k = param.find('='); k != std::string_view::npos)
         {
             auto const key = param.substr(0, k);
@@ -172,11 +177,11 @@ inline std::unordered_map<std::string_view, std::string_view> splitKeyValuePairs
             if (!key.empty())
                 params[key] = val;
         }
-        i_beg = i + 1;
-        i = text.find(delimiter, i_beg);
+        iBeg = i + 1;
+        i = text.find(delimiter, iBeg);
     }
 
-    std::string_view param(text.data() + i_beg);
+    auto const param = std::string_view(text.data() + iBeg);
     if (auto const k = param.find('='); k != std::string_view::npos)
     {
         auto const key = param.substr(0, k);
@@ -271,26 +276,52 @@ constexpr std::optional<T> to_integer(std::basic_string<C> text) noexcept
     return to_integer<Base, T, C>(std::basic_string_view<C>(text));
 }
 
-struct finally // NOLINT(readability-identifier-naming)
+class finally // NOLINT(readability-identifier-naming)
 {
-    std::function<void()> hook {};
+  public:
+    explicit finally(std::function<void()> hook): _hook(std::move(hook)) {}
 
-    void perform()
+    finally(finally const&) = delete;
+    finally& operator=(finally const&) = delete;
+    finally(finally&&) = delete;
+    finally& operator=(finally&&) = delete;
+
+    void run()
     {
-        if (hook)
+        if (_hook)
         {
-            auto hooked = std::move(hook);
-            hook = {};
+            auto hooked = std::move(_hook);
+            _hook = {};
             hooked();
         }
     }
 
-    ~finally()
-    {
-        if (hook)
-            hook();
-    }
+    ~finally() { run(); }
+
+  private:
+    std::function<void()> _hook {};
 };
+
+#if defined(CRISPY_CONCEPTS_SUPPORTED)
+
+// clang-format off
+template <typename T>
+concept LockableConcept = requires(T t)
+{
+    { t.lock() } -> std::same_as<void>;
+    { t.unlock() } -> std::same_as<void>;
+};
+// clang-format on
+
+#endif
+
+template <typename L, typename F>
+CRISPY_REQUIRES(LockableConcept<L>)
+auto locked(L& lockable, F const& f)
+{
+    auto const _ = std::scoped_lock { lockable };
+    return f();
+}
 
 inline std::optional<unsigned> fromHexDigit(char value)
 {
@@ -334,7 +365,7 @@ std::basic_string<T> toHexString(std::basic_string_view<T> input)
     std::basic_string<T> output;
 
     for (T const ch: input)
-        output += fmt::format("{:02X}", static_cast<unsigned>(ch));
+        output += std::format("{:02X}", static_cast<unsigned>(ch));
 
     return output;
 }
@@ -369,9 +400,9 @@ inline std::basic_string<T> toUpper(std::basic_string<T> const& value)
     return toUpper<T>(std::basic_string_view<T>(value));
 }
 
-inline std::string readFileAsString(FileSystem::path const& path)
+inline std::string readFileAsString(std::filesystem::path const& path)
 {
-    auto const fileSize = FileSystem::file_size(path);
+    auto const fileSize = std::filesystem::file_size(path);
     auto text = std::string();
     text.resize(fileSize);
     std::ifstream in(path.string());
@@ -387,7 +418,7 @@ inline std::string readFileAsString(FileSystem::path const& path)
 template <typename T>
 constexpr auto each_element() noexcept
 {
-    struct Container
+    struct container
     {
         struct iterator // NOLINT(readability-identifier-naming)
         {
@@ -408,7 +439,7 @@ constexpr auto each_element() noexcept
             return iterator { static_cast<T>(static_cast<int>(std::numeric_limits<T>::max()) + 1) };
         }
     };
-    return Container {};
+    return container {};
 }
 
 template <typename T>
@@ -420,21 +451,21 @@ inline std::string replace(std::string_view text, std::string_view pattern, T&& 
 
     std::ostringstream os;
     os << text.substr(0, i);
-    os << value;
+    os << std::forward<T>(value);
     os << text.substr(i + pattern.size());
     return os.str();
 }
 
-inline FileSystem::path homeResolvedPath(std::string input, const FileSystem::path& homeDirectory)
+inline std::filesystem::path homeResolvedPath(std::string input, const std::filesystem::path& homeDirectory)
 {
     if (!input.empty() && input[0] == '~')
     {
         bool const pathSepFound = input.size() >= 2 && (input[1] == '/' || input[1] == '\\');
         auto subPath = input.substr(pathSepFound ? 2 : 1);
-        return homeDirectory / FileSystem::path(subPath);
+        return homeDirectory / std::filesystem::path(subPath);
     }
 
-    return FileSystem::path(input);
+    return std::filesystem::path(input);
 }
 
 template <typename VariableReplacer>
@@ -443,30 +474,30 @@ inline std::string replaceVariables(std::string_view text, VariableReplacer repl
     using namespace std::string_view_literals;
 
     auto output = std::string {};
-    auto constexpr npos = std::string_view::npos;
+    auto constexpr Npos = std::string_view::npos;
     auto i = std::string_view::size_type { 0 };
 
-    auto constexpr markerStart = "${"sv;
-    auto constexpr markerEnd = "}"sv;
+    auto constexpr MarkerStart = "${"sv;
+    auto constexpr MarkerEnd = "}"sv;
 
-    while (i != npos)
+    while (i != Npos)
     {
-        auto const markerStartOffset = text.find(markerStart, i);
-        if (markerStartOffset == npos)
+        auto const markerStartOffset = text.find(MarkerStart, i);
+        if (markerStartOffset == Npos)
             break;
 
         auto const gapText = text.substr(i, markerStartOffset - i);
         output += gapText;
 
-        auto const markerEndOffset = text.find(markerEnd, markerStartOffset + markerStart.size());
-        if (markerEndOffset == npos)
+        auto const markerEndOffset = text.find(MarkerEnd, markerStartOffset + MarkerStart.size());
+        if (markerEndOffset == Npos)
             break; // Invalid variable format. Closing variable marker not found.
 
-        auto const nameLength = markerEndOffset - (markerStartOffset + markerStart.size());
-        auto const name = text.substr(markerStartOffset + markerStart.size(), nameLength);
+        auto const nameLength = markerEndOffset - (markerStartOffset + MarkerStart.size());
+        auto const name = text.substr(markerStartOffset + MarkerStart.size(), nameLength);
         output += replace(name);
 
-        i = markerEndOffset + markerEnd.size();
+        i = markerEndOffset + MarkerEnd.size();
     }
     output += text.substr(i);
 
@@ -496,39 +527,40 @@ constexpr T nextPowerOfTwo(T v) noexcept
     return v;
 }
 
-inline std::string humanReadableBytes(long double bytes)
+inline std::string humanReadableBytes(uint64_t bytes)
 {
-    if (bytes <= 1024.0)
-        return fmt::format("{} bytes", unsigned(bytes));
+    if (bytes <= 1024)
+        return std::format("{} bytes", unsigned(bytes));
 
-    auto const kb = bytes / 1024.0;
+    auto const kb = static_cast<long double>(bytes) / 1024.0;
     if (kb <= 1024.0)
-        return fmt::format("{:.03} KB", kb);
+        return std::format("{:.03} KB", kb);
 
     auto const mb = kb / 1024.0;
     if (mb <= 1024.0)
-        return fmt::format("{:.03} MB", mb);
+        return std::format("{:.03} MB", mb);
 
     auto const gb = mb / 1024.0;
-    return fmt::format("{:.03} GB", gb);
+    return std::format("{:.03} GB", gb);
 }
 
 template <typename... Ts>
-constexpr void ignore_unused(Ts&&... /*values*/) noexcept
+constexpr void ignore_unused(Ts... /*values*/) noexcept
 {
 }
 
-template <typename T>
-inline bool beginsWith(std::basic_string_view<T> text, std::basic_string_view<T> subtext) noexcept
+std::string threadName();
+
+template <class... Ts>
+struct overloaded: Ts...
 {
-    if (text.size() < subtext.size())
-        return false;
+    using Ts::operator()...;
+};
 
-    for (size_t i = 0; i < subtext.size(); ++i)
-        if (text[i] != subtext[i])
-            return false;
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
 
-    return true;
-}
+template <typename T, typename... Ts>
+concept one_of = (std::same_as<T, Ts> || ...);
 
 } // namespace crispy

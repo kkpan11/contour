@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2023 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/MockTerm.h>
@@ -19,13 +7,13 @@
 
 #include <crispy/escape.h>
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <string>
 #include <string_view>
 #include <vector>
 
-namespace terminal::test
+namespace vtbackend::test
 {
 
 constexpr LineOffset operator""_lineOffset(unsigned long long value) noexcept
@@ -50,16 +38,16 @@ template <typename S>
 }
 
 /// Takes a textual screenshot using the terminals render buffer.
-[[nodiscard]] inline std::vector<std::string> textScreenshot(terminal::Terminal const& terminal)
+[[nodiscard]] inline std::vector<std::string> textScreenshot(vtbackend::Terminal const& terminal)
 {
-    terminal::RenderBufferRef renderBuffer = terminal.renderBuffer();
+    vtbackend::RenderBufferRef const renderBuffer = terminal.renderBuffer();
 
     std::vector<std::string> lines;
     lines.resize(terminal.pageSize().lines.as<size_t>());
 
-    terminal::CellLocation lastPos = {};
+    vtbackend::CellLocation lastPos = {};
     size_t lastCount = 0;
-    for (terminal::RenderCell const& cell: renderBuffer.buffer.cells)
+    for (vtbackend::RenderCell const& cell: renderBuffer.buffer->cells)
     {
         auto const gap = (cell.position.column + static_cast<int>(lastCount) - 1) - lastPos.column;
         auto& currentLine = lines.at(unbox<size_t>(cell.position.line));
@@ -70,7 +58,7 @@ template <typename S>
         lastPos = cell.position;
         lastCount = 1;
     }
-    for (terminal::RenderLine const& line: renderBuffer.buffer.lines)
+    for (vtbackend::RenderLine const& line: renderBuffer.buffer->lines)
     {
         auto& currentLine = lines.at(unbox<size_t>(line.lineOffset));
         currentLine = line.text;
@@ -113,13 +101,13 @@ template <typename T>
 template <typename T>
 void logScreenTextAlways(Screen<T> const& screen, std::string const& headline = "")
 {
-    fmt::print("{}: ZI={} cursor={} HM={}..{}\n",
-               headline.empty() ? "screen dump" : headline,
-               screen.grid().zero_index(),
-               screen.realCursorPosition(),
-               screen.margin().horizontal.from,
-               screen.margin().horizontal.to);
-    fmt::print("{}\n", dumpGrid(screen.grid()));
+    std::cout << std::format("{}: ZI={} cursor={} HM={}..{}\n",
+                             headline.empty() ? "screen dump" : headline,
+                             screen.grid().zero_index(),
+                             screen.realCursorPosition(),
+                             screen.margin().horizontal.from,
+                             screen.margin().horizontal.to);
+    std::cout << std::format("{}\n", dumpGrid(screen.grid()));
 }
 
 template <typename T>
@@ -137,12 +125,12 @@ void logScreenText(Screen<T> const& screen, std::string const& headline = "")
         UNSCOPED_INFO(headline + ":");
 
     for (auto const line: ::ranges::views::iota(0, *screen.pageSize().lines))
-        UNSCOPED_INFO(fmt::format("[{}] \"{}\"", line, screen.grid().lineText(LineOffset::cast_from(line))));
+        UNSCOPED_INFO(std::format("[{}] \"{}\"", line, screen.grid().lineText(LineOffset::cast_from(line))));
 }
 
-inline void logScreenText(terminal::Terminal const& terminal, std::string const& headline = "")
+inline void logScreenText(vtbackend::Terminal const& terminal, std::string const& headline = "")
 {
     logScreenText(terminal.primaryScreen(), headline);
 }
 
-} // namespace terminal::test
+} // namespace vtbackend::test

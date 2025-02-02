@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/MockTerm.h>
 #include <vtbackend/Terminal.h>
 #include <vtbackend/primitives.h>
@@ -21,27 +9,24 @@
 #include <crispy/App.h>
 #include <crispy/times.h>
 
-#include <catch2/catch.hpp>
+#include <libunicode/convert.h>
 
-#include <algorithm>
-#include <iostream>
-#include <iterator>
+#include <catch2/catch_test_macros.hpp>
+
 #include <string>
 #include <vector>
 
-#include <libunicode/convert.h>
-
 using namespace std;
 using namespace std::chrono_literals;
-using terminal::CellFlags;
-using terminal::ColumnCount;
-using terminal::ColumnOffset;
-using terminal::LineCount;
-using terminal::LineOffset;
-using terminal::MockTerm;
-using terminal::PageSize;
+using vtbackend::CellFlag;
+using vtbackend::ColumnCount;
+using vtbackend::ColumnOffset;
+using vtbackend::LineCount;
+using vtbackend::LineOffset;
+using vtbackend::MockTerm;
+using vtbackend::PageSize;
 
-using namespace terminal::test;
+using namespace vtbackend::test;
 
 // TODO: Test case posibilities:
 //
@@ -58,11 +43,12 @@ using namespace terminal::test;
 // TODO: Writing text, leading to page-scroll properly updates viewport.
 // TODO: Writing text, leading to page-scroll properly updates active selection.
 
+// NOLINTBEGIN(misc-const-correctness)
 TEST_CASE("Terminal.BlinkingCursor", "[terminal]")
 {
     auto mc = MockTerm { ColumnCount { 6 }, LineCount { 4 } };
     auto& terminal = mc.terminal;
-    terminal.setCursorDisplay(terminal::CursorDisplay::Blink);
+    terminal.setCursorDisplay(vtbackend::CursorDisplay::Blink);
     auto constexpr BlinkInterval = chrono::milliseconds(500);
     terminal.setCursorBlinkingInterval(BlinkInterval);
 
@@ -91,7 +77,7 @@ TEST_CASE("Terminal.BlinkingCursor", "[terminal]")
 
         // type something into the terminal
         auto const clockAtInputEvent = clockBase + BlinkInterval + chrono::milliseconds(10);
-        terminal.sendCharPressEvent('x', terminal::Modifier {}, clockAtInputEvent);
+        mc.sendCharEvent('x', vtbackend::Modifier {}, clockAtInputEvent);
 
         // now the cursor is visible before the interval has passed
         terminal.tick(clockBeforeTurn);
@@ -122,12 +108,8 @@ TEST_CASE("Terminal.DECCARA", "[terminal]")
     auto const left = 3;
     auto const bottom = 4;
     auto const right = 5;
-    mock.writeToScreen(fmt::format("\033[{top};{left};{bottom};{right};{sgr}$r",
-                                   fmt::arg("top", top),
-                                   fmt::arg("left", left),
-                                   fmt::arg("bottom", bottom),
-                                   fmt::arg("right", right),
-                                   fmt::arg("sgr", "1;38:2::171:178:191;4")));
+    mock.writeToScreen(
+        std::format("\033[{};{};{};{};{}$r", top, left, bottom, right, "1;38:2::171:178:191;4"));
 
     mock.terminal.tick(ClockBase + chrono::seconds(2));
     mock.terminal.ensureFreshRenderBuffer();
@@ -142,11 +124,11 @@ TEST_CASE("Terminal.DECCARA", "[terminal]")
             // clang-format off
             auto const& someCell = mock.terminal.primaryScreen().at(LineOffset(line - 1), ColumnOffset(column - 1));
             auto const rgb = someCell.foregroundColor().rgb();
-            auto const colorDec = fmt::format("{}/{}/{}", unsigned(rgb.red), unsigned(rgb.green), unsigned(rgb.blue));
-            INFO(fmt::format("at line {} column {}, flags {}", line, column, someCell.flags()));
+            auto const colorDec = std::format("{}/{}/{}", unsigned(rgb.red), unsigned(rgb.green), unsigned(rgb.blue));
+            INFO(std::format("at line {} column {}, flags {}", line, column, someCell.flags()));
             CHECK(colorDec == "171/178/191");
-            CHECK(someCell.isFlagEnabled(terminal::CellFlags::Bold));
-            CHECK(someCell.isFlagEnabled(terminal::CellFlags::Underline));
+            CHECK(someCell.isFlagEnabled(vtbackend::CellFlag::Bold));
+            CHECK(someCell.isFlagEnabled(vtbackend::CellFlag::Underline));
             // clang-format on
         }
 }
@@ -168,8 +150,8 @@ TEST_CASE("Terminal.CaptureScreenBuffer")
     // fill screen buffer (5 lines into history + full 5 lines page buffer)
     for (int i = 1; i <= 10; ++i)
     {
-        mock.writeToScreen(fmt::format("\r\n{}", i));
-        logScreenText(mock.terminal, fmt::format("write i {}", i));
+        mock.writeToScreen(std::format("\r\n{}", i));
+        logScreenText(mock.terminal, std::format("write i {}", i));
     }
 
     mock.terminal.tick(ClockBase + chrono::seconds(1));
@@ -178,7 +160,7 @@ TEST_CASE("Terminal.CaptureScreenBuffer")
     REQUIRE("6\n7\n8\n9\n10" == actualScreen1);
     logScreenText(mock.terminal, "fini");
 
-    mock.writeToScreen(fmt::format("\033[>{};{}t", NoLogicalLines, NumberOfLinesToCapture));
+    mock.writeToScreen(std::format("\033[>{};{}t", NoLogicalLines, NumberOfLinesToCapture));
     mock.terminal.flushInput();
     logScreenText(mock.terminal, "after flush");
 
@@ -195,7 +177,7 @@ TEST_CASE("Terminal.CaptureScreenBuffer")
 
 TEST_CASE("Terminal.RIS", "[terminal]")
 {
-    using namespace terminal;
+    using namespace vtbackend;
 
     constexpr auto RIS = "\033c"sv;
 
@@ -241,12 +223,12 @@ TEST_CASE("Terminal.SynchronizedOutput", "[terminal]")
 
 TEST_CASE("Terminal.XTPUSHCOLORS_and_XTPOPCOLORS", "[terminal]")
 {
-    using namespace terminal;
+    using namespace vtbackend;
 
     auto mc = MockTerm { ColumnCount(20), LineCount(1) };
-    auto& vtState = mc.terminal.state();
+    auto& vt = mc.terminal;
 
-    auto const originalPalette = vtState.colorPalette;
+    auto const originalPalette = vt.colorPalette();
 
     auto modifiedPalette = ColorPalette {};
     modifiedPalette.palette[0] = 0xFF6600_rgb;
@@ -254,39 +236,39 @@ TEST_CASE("Terminal.XTPUSHCOLORS_and_XTPOPCOLORS", "[terminal]")
     SECTION("pop on empty")
     {
         mc.writeToScreen("\033[#Q");
-        REQUIRE(vtState.savedColorPalettes.empty());
-        REQUIRE(vtState.colorPalette.palette == originalPalette.palette);
+        REQUIRE(vt.savedColorPalettes().empty());
+        REQUIRE(vt.colorPalette().palette == originalPalette.palette);
     }
 
     SECTION("default")
     {
         mc.writeToScreen("\033[#P"); // XTPUSHCOLORS (default)
-        REQUIRE(vtState.savedColorPalettes.size() == 1);
-        REQUIRE(vtState.savedColorPalettes.back().palette == originalPalette.palette);
-        vtState.colorPalette.palette[0] = 0x123456_rgb;
-        REQUIRE(vtState.colorPalette.palette != originalPalette.palette);
+        REQUIRE(vt.savedColorPalettes().size() == 1);
+        REQUIRE(vt.savedColorPalettes().back().palette == originalPalette.palette);
+        vt.colorPalette().palette[0] = 0x123456_rgb;
+        REQUIRE(vt.colorPalette().palette != originalPalette.palette);
         mc.writeToScreen("\033[#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.colorPalette.palette == originalPalette.palette);
+        REQUIRE(vt.colorPalette().palette == originalPalette.palette);
     }
 
     SECTION("0")
     {
         mc.writeToScreen("\033[0#P"); // push current color palette to slot 1 (default).
-        REQUIRE(vtState.savedColorPalettes.size() == 1);
+        REQUIRE(vt.savedColorPalettes().size() == 1);
     }
 
     SECTION("1")
     {
-        REQUIRE(vtState.savedColorPalettes.empty());
+        REQUIRE(vt.savedColorPalettes().empty());
         mc.writeToScreen("\033[1#P"); // push current color palette to slot 1.
-        REQUIRE(vtState.savedColorPalettes.size() == 1);
+        REQUIRE(vt.savedColorPalettes().size() == 1);
     }
 
     SECTION("2")
     {
-        REQUIRE(vtState.savedColorPalettes.empty());
+        REQUIRE(vt.savedColorPalettes().empty());
         mc.writeToScreen("\033[2#P"); // push current color palette to slot 1.
-        REQUIRE(vtState.savedColorPalettes.size() == 2);
+        REQUIRE(vt.savedColorPalettes().size() == 2);
         mc.writeToScreen("\033[#R");
         mc.terminal.flushInput();
         REQUIRE(e("\033[2;2#Q") == e(mc.replyData()));
@@ -294,9 +276,9 @@ TEST_CASE("Terminal.XTPUSHCOLORS_and_XTPOPCOLORS", "[terminal]")
 
     SECTION("10")
     {
-        REQUIRE(vtState.savedColorPalettes.empty());
+        REQUIRE(vt.savedColorPalettes().empty());
         mc.writeToScreen("\033[10#P"); // push current color palette to slot 10.
-        REQUIRE(vtState.savedColorPalettes.size() == 10);
+        REQUIRE(vt.savedColorPalettes().size() == 10);
         mc.writeToScreen("\033[#R");
         mc.terminal.flushInput();
         REQUIRE(e("\033[10;10#Q") == e(mc.replyData()));
@@ -304,56 +286,123 @@ TEST_CASE("Terminal.XTPUSHCOLORS_and_XTPOPCOLORS", "[terminal]")
 
     SECTION("11")
     {
-        REQUIRE(vtState.savedColorPalettes.empty());
+        REQUIRE(vt.savedColorPalettes().empty());
         mc.writeToScreen("\033[11#P"); // push current color palette to slot 11: overflow.
-        REQUIRE(vtState.savedColorPalettes.empty());
+        REQUIRE(vt.savedColorPalettes().empty());
     }
 
     SECTION("push and direct copy")
     {
-        vtState.colorPalette.palette[1] = 0x101010_rgb;
-        auto const p1 = vtState.colorPalette;
+        vt.colorPalette().palette[1] = 0x101010_rgb;
+        auto const p1 = vt.colorPalette();
         mc.writeToScreen("\033[#P");
 
-        vtState.colorPalette.palette[3] = 0x303030_rgb;
-        auto const p3 = vtState.colorPalette;
+        vt.colorPalette().palette[3] = 0x303030_rgb;
+        auto const p3 = vt.colorPalette();
         mc.writeToScreen("\033[3#P");
 
-        vtState.colorPalette.palette[2] = 0x202020_rgb;
-        auto const p2 = vtState.colorPalette;
+        vt.colorPalette().palette[2] = 0x202020_rgb;
+        auto const p2 = vt.colorPalette();
         mc.writeToScreen("\033[2#P");
 
-        REQUIRE(vtState.savedColorPalettes.size() == 3);
-        REQUIRE(vtState.colorPalette.palette == vtState.savedColorPalettes[2 - 1].palette);
+        REQUIRE(vt.savedColorPalettes().size() == 3);
+        REQUIRE(vt.colorPalette().palette == vt.savedColorPalettes()[2 - 1].palette);
 
         mc.writeToScreen("\033[1#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.savedColorPalettes.size() == 3);
-        REQUIRE(vtState.colorPalette.palette == vtState.savedColorPalettes[1 - 1].palette);
+        REQUIRE(vt.savedColorPalettes().size() == 3);
+        REQUIRE(vt.colorPalette().palette == vt.savedColorPalettes()[1 - 1].palette);
 
         mc.writeToScreen("\033[2#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.savedColorPalettes.size() == 3);
-        REQUIRE(vtState.colorPalette.palette == vtState.savedColorPalettes[2 - 1].palette);
+        REQUIRE(vt.savedColorPalettes().size() == 3);
+        REQUIRE(vt.colorPalette().palette == vt.savedColorPalettes()[2 - 1].palette);
 
         mc.writeToScreen("\033[3#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.savedColorPalettes.size() == 3);
-        REQUIRE(vtState.colorPalette.palette == vtState.savedColorPalettes[3 - 1].palette);
+        REQUIRE(vt.savedColorPalettes().size() == 3);
+        REQUIRE(vt.colorPalette().palette == vt.savedColorPalettes()[3 - 1].palette);
 
         mc.writeToScreen("\033[#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.savedColorPalettes.size() == 2);
-        REQUIRE(vtState.colorPalette.palette == p3.palette);
+        REQUIRE(vt.savedColorPalettes().size() == 2);
+        REQUIRE(vt.colorPalette().palette == p3.palette);
 
         mc.writeToScreen("\033[#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.savedColorPalettes.size() == 1);
-        REQUIRE(vtState.colorPalette.palette == p2.palette);
+        REQUIRE(vt.savedColorPalettes().size() == 1);
+        REQUIRE(vt.colorPalette().palette == p2.palette);
 
         mc.writeToScreen("\033[#Q"); // XTPOPCOLORS
-        REQUIRE(vtState.savedColorPalettes.empty());
-        REQUIRE(vtState.colorPalette.palette == p1.palette);
+        REQUIRE(vt.savedColorPalettes().empty());
+        REQUIRE(vt.colorPalette().palette == p1.palette);
 
         mc.writeToScreen("\033[#Q"); // XTPOPCOLORS (underflow)
-        REQUIRE(vtState.savedColorPalettes.empty());
-        REQUIRE(vtState.colorPalette.palette == p1.palette);
+        REQUIRE(vt.savedColorPalettes().empty());
+        REQUIRE(vt.colorPalette().palette == p1.palette);
     }
+}
+
+TEST_CASE("Terminal.UnderlineStyleClearing", "[terminal]")
+{
+    // Each subsequent underline style should clear the former if present.
+
+    auto const now = chrono::steady_clock::now();
+    auto mc = MockTerm { ColumnCount(20), LineCount(1) };
+
+    mc.writeToScreen("\033[4:1mAB\033[21mCD\033[4:3mEF\033[24mGH\033[4:2mIJ\033[mKL");
+    mc.terminal.tick(now);
+    mc.terminal.ensureFreshRenderBuffer();
+    CHECK("ABCDEFGHIJKL" == trimmedTextScreenshot(mc));
+
+    auto& screen = mc.terminal.primaryScreen();
+
+    CHECK(screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlag::Underline));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(4)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(5)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(6)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(7)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(8)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(9)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(10)).isFlagEnabled(CellFlag::Underline));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(11)).isFlagEnabled(CellFlag::Underline));
+
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(4)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(5)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(6)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(7)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(8)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(9)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(10)).isFlagEnabled(CellFlag::DoublyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(11)).isFlagEnabled(CellFlag::DoublyUnderlined));
+
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(4)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(5)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(6)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(7)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(8)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(9)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(10)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(11)).isFlagEnabled(CellFlag::CurlyUnderlined));
+
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(4)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(5)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(6)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(7)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(8)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(9)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(10)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(11)).isFlagEnabled(CellFlag::Italic));
 }
 
 TEST_CASE("Terminal.CurlyUnderline", "[terminal]")
@@ -368,15 +417,15 @@ TEST_CASE("Terminal.CurlyUnderline", "[terminal]")
 
     auto& screen = mc.terminal.primaryScreen();
 
-    CHECK(screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlags::CurlyUnderlined));
-    CHECK(screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlags::CurlyUnderlined));
-    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlags::CurlyUnderlined));
-    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlags::CurlyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlag::CurlyUnderlined));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlag::CurlyUnderlined));
 
-    CHECK(!screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlags::Italic));
-    CHECK(!screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlags::Italic));
-    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlags::Italic));
-    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlags::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(0)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(1)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(2)).isFlagEnabled(CellFlag::Italic));
+    CHECK(!screen.at(LineOffset(0), ColumnOffset(3)).isFlagEnabled(CellFlag::Italic));
 }
 
 TEST_CASE("Terminal.TextSelection", "[terminal]")
@@ -400,21 +449,21 @@ TEST_CASE("Terminal.TextSelection", "[terminal]")
     CHECK("12345\n67890\nABCDE\nabcde\nfghij" == trimmedTextScreenshot(mock));
 
     // Perform selection
-    using namespace terminal;
-    auto constexpr uiHandledHint = false;
-    auto constexpr pixelCoordinate = PixelCoordinate {};
+    using namespace vtbackend;
+    auto constexpr UiHandledHint = false;
+    auto constexpr PixelCoordinate = vtbackend::PixelCoordinate {};
 
     mock.terminal.tick(1s);
     mock.terminal.sendMouseMoveEvent(
-        Modifier::None, 1_lineOffset + 1_columnOffset, pixelCoordinate, uiHandledHint);
+        Modifier::None, 1_lineOffset + 1_columnOffset, PixelCoordinate, UiHandledHint);
 
     mock.terminal.tick(1s);
     auto const appHandledMouse =
-        mock.terminal.sendMousePressEvent(Modifier::None, MouseButton::Left, pixelCoordinate, uiHandledHint);
+        mock.terminal.sendMousePressEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
 
     // We want to ensure that this call is returning false if the app has not explicitly requested
     // to listen on mouse events (without passive mode being on).
-    REQUIRE(appHandledMouse == false);
+    REQUIRE(appHandledMouse == Handled { false });
 
     CHECK(mock.terminal.selector()->state() == Selection::State::Waiting);
 
@@ -424,16 +473,68 @@ TEST_CASE("Terminal.TextSelection", "[terminal]")
 
     mock.terminal.tick(1s);
     mock.terminal.sendMouseMoveEvent(
-        Modifier::None, 2_lineOffset + 2_columnOffset, pixelCoordinate, uiHandledHint);
+        Modifier::None, 2_lineOffset + 2_columnOffset, PixelCoordinate, UiHandledHint);
     CHECK(mock.terminal.extractSelectionText() == "7890\nABC");
 
     mock.terminal.tick(1s);
-    mock.terminal.sendMouseReleaseEvent(Modifier::None, MouseButton::Left, pixelCoordinate, uiHandledHint);
+    mock.terminal.sendMouseReleaseEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
     CHECK(mock.terminal.extractSelectionText() == "7890\nABC");
 
     // Clear selection by simply left-clicking.
     mock.terminal.tick(1s);
-    mock.terminal.sendMousePressEvent(Modifier::None, MouseButton::Left, pixelCoordinate, uiHandledHint);
-    mock.terminal.sendMouseReleaseEvent(Modifier::None, MouseButton::Left, pixelCoordinate, uiHandledHint);
+    mock.terminal.sendMousePressEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
+    mock.terminal.sendMouseReleaseEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
     CHECK(mock.terminal.extractSelectionText().empty());
 }
+
+TEST_CASE("Terminal.TextSelection_wrapped_line", "[terminal]")
+{
+    // Create empty TE
+    auto mock = MockTerm { ColumnCount(5), LineCount(2) };
+    auto constexpr ClockBase = chrono::steady_clock::time_point();
+    mock.terminal.tick(ClockBase);
+    mock.terminal.ensureFreshRenderBuffer();
+    CHECK(trimmedTextScreenshot(mock).empty());
+
+    // write one line with 10 a
+    mock.writeToScreen(std::string(10, 'a'));
+
+    mock.terminal.tick(ClockBase + chrono::seconds(1));
+    mock.terminal.ensureFreshRenderBuffer();
+    CHECK("aaaaa\naaaaa" == trimmedTextScreenshot(mock));
+
+    // Perform selection
+    using namespace vtbackend;
+    auto constexpr UiHandledHint = false;
+    auto constexpr PixelCoordinate = vtbackend::PixelCoordinate {};
+
+    mock.terminal.tick(1s);
+    mock.terminal.sendMouseMoveEvent(
+        Modifier::None, 0_lineOffset + 1_columnOffset, PixelCoordinate, UiHandledHint);
+
+    mock.terminal.tick(1s);
+    auto const appHandledMouse =
+        mock.terminal.sendMousePressEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
+
+    REQUIRE(appHandledMouse == Handled { false });
+
+    CHECK(mock.terminal.selector()->state() == Selection::State::Waiting);
+
+    CHECK(mock.terminal.extractSelectionText().empty());
+
+    mock.terminal.tick(1s);
+    mock.terminal.sendMouseMoveEvent(
+        Modifier::None, 1_lineOffset + 1_columnOffset, PixelCoordinate, UiHandledHint);
+    CHECK(mock.terminal.extractSelectionText() == "aaaaaa");
+
+    mock.terminal.tick(1s);
+    mock.terminal.sendMouseReleaseEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
+    CHECK(mock.terminal.extractSelectionText() == "aaaaaa");
+
+    mock.terminal.tick(1s);
+    mock.terminal.sendMousePressEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
+    mock.terminal.sendMouseReleaseEvent(Modifier::None, MouseButton::Left, PixelCoordinate, UiHandledHint);
+    CHECK(mock.terminal.extractSelectionText().empty());
+}
+
+// NOLINTEND(misc-const-correctness)

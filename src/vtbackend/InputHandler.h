@@ -1,22 +1,17 @@
-/**
- * This file is part of the "contour" project
- *   Copyright (c) 2019-2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/InputGenerator.h>
 
-namespace terminal
+#include <boxed-cpp/boxed.hpp>
+
+namespace vtbackend
 {
+
+struct HandledTag
+{
+};
+using Handled = boxed::boxed<bool, HandledTag>;
 
 /**
  * Generic input handler interface.
@@ -28,8 +23,10 @@ class InputHandler
 {
   public:
     virtual ~InputHandler() = default;
-    virtual bool sendKeyPressEvent(Key key, Modifier modifier) = 0;
-    virtual bool sendCharPressEvent(char32_t codepoint, Modifier modifier) = 0;
+    virtual Handled sendKeyPressEvent(Key key, Modifiers modifiers, KeyboardEventType eventType) = 0;
+    virtual Handled sendCharPressEvent(char32_t codepoint,
+                                       Modifiers modifiers,
+                                       KeyboardEventType eventType) = 0;
 };
 
-} // namespace terminal
+} // namespace vtbackend

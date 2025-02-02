@@ -4,22 +4,20 @@
 
 #include <crispy/point.h>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
-enum class TextShapingEngine
+enum class TextShapingEngine : uint8_t
 {
     OpenShaper, //!< Uses open-source implementation: harfbuzz/freetype/fontconfig
     DWrite,     //!< native platform support: Windows
-    CoreText,   //!< native platform support: OS/X
+    CoreText,   //!< native platform support: macOS
 };
 
-enum class FontLocatorEngine
+enum class FontLocatorEngine : uint8_t
 {
-    Mock,       //!< mock font locator API
-    FontConfig, //!< platform independant font locator API
-    DWrite,     //!< native platform support: Windows
-    CoreText,   //!< native font locator on OS/X
+    Mock,   //!< mock font locator API
+    Native, //!< native platform support
 };
 
 using DPI = text::DPI;
@@ -28,7 +26,7 @@ struct FontDescriptions
 {
     double dpiScale = 1.0;
     DPI dpi = { 0, 0 }; // 0 => auto-fill with defaults
-    text::font_size size;
+    text::font_size size { 12.0 };
     text::font_description regular;
     text::font_description bold;
     text::font_description italic;
@@ -36,7 +34,7 @@ struct FontDescriptions
     text::font_description emoji;
     text::render_mode renderMode;
     TextShapingEngine textShapingEngine = TextShapingEngine::OpenShaper;
-    FontLocatorEngine fontLocator = FontLocatorEngine::FontConfig;
+    FontLocatorEngine fontLocator = FontLocatorEngine::Native;
     bool builtinBoxDrawing = true;
 };
 
@@ -58,7 +56,7 @@ inline bool operator!=(FontDescriptions const& a, FontDescriptions const& b) noe
     return !(a == b);
 }
 
-enum class TextStyle
+enum class TextStyle : uint8_t
 {
     Invalid = 0x00,
     Regular = 0x10,
@@ -77,85 +75,74 @@ constexpr bool operator<(TextStyle a, TextStyle b) noexcept
     return static_cast<unsigned>(a) < static_cast<unsigned>(b);
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer
 
 // {{{ fmt formatter
-namespace fmt
-{
-
 template <>
-struct formatter<terminal::rasterizer::FontLocatorEngine>
+struct std::formatter<vtrasterizer::TextStyle>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::TextStyle value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::FontLocatorEngine value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::rasterizer::FontLocatorEngine::CoreText:
-                return fmt::format_to(ctx.out(), "CoreText");
-            case terminal::rasterizer::FontLocatorEngine::DWrite:
-                return fmt::format_to(ctx.out(), "DirectWrite");
-            case terminal::rasterizer::FontLocatorEngine::FontConfig:
-                return fmt::format_to(ctx.out(), "Fontconfig");
-            case terminal::rasterizer::FontLocatorEngine::Mock: return fmt::format_to(ctx.out(), "Mock");
+            case vtrasterizer::TextStyle::Invalid: name = "Invalid"; break;
+            case vtrasterizer::TextStyle::Regular: name = "Regular"; break;
+            case vtrasterizer::TextStyle::Bold: name = "Bold"; break;
+            case vtrasterizer::TextStyle::Italic: name = "Italic"; break;
+            case vtrasterizer::TextStyle::BoldItalic: name = "BoldItalic"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", static_cast<unsigned>(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::rasterizer::TextShapingEngine>
+struct std::formatter<vtrasterizer::FontLocatorEngine>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::FontLocatorEngine value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::TextShapingEngine value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::rasterizer::TextShapingEngine::CoreText:
-                return fmt::format_to(ctx.out(), "CoreText");
-            case terminal::rasterizer::TextShapingEngine::DWrite:
-                return fmt::format_to(ctx.out(), "DirectWrite");
-            case terminal::rasterizer::TextShapingEngine::OpenShaper:
-                return fmt::format_to(ctx.out(), "harfbuzz");
+            case vtrasterizer::FontLocatorEngine::Native: name = "Native"; break;
+            case vtrasterizer::FontLocatorEngine::Mock: name = "Mock"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", static_cast<unsigned>(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::rasterizer::FontDescriptions>
+struct std::formatter<vtrasterizer::TextShapingEngine>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::TextShapingEngine value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::FontDescriptions const& fd, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "({}, {}, {}, {}, {}, {}, {}, {})",
-                              fd.size,
-                              fd.dpi,
-                              fd.dpiScale,
-                              fd.regular,
-                              fd.bold,
-                              fd.italic,
-                              fd.boldItalic,
-                              fd.emoji,
-                              fd.renderMode);
+        string_view name;
+        switch (value)
+        {
+            case vtrasterizer::TextShapingEngine::CoreText: name = "CoreText"; break;
+            case vtrasterizer::TextShapingEngine::DWrite: name = "DirectWrite"; break;
+            case vtrasterizer::TextShapingEngine::OpenShaper: name = "harfbuzz"; break;
+        }
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
-} // namespace fmt
+template <>
+struct std::formatter<vtrasterizer::FontDescriptions>: std::formatter<std::string>
+{
+    auto format(vtrasterizer::FontDescriptions const& fd, auto& ctx) const
+    {
+        return formatter<std::string>::format(std::format("({}, {}, {}, {}, {}, {}, {}, {})",
+                                                          fd.size,
+                                                          fd.dpi,
+                                                          fd.dpiScale,
+                                                          fd.regular,
+                                                          fd.bold,
+                                                          fd.italic,
+                                                          fd.boldItalic,
+                                                          fd.emoji,
+                                                          fd.renderMode),
+                                              ctx);
+    }
+};
 // }}}

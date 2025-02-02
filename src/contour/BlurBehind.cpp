@@ -1,25 +1,11 @@
-/**
- * This file is part of the "contour" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#include "BlurBehind.h"
+// SPDX-License-Identifier: Apache-2.0
+#include <contour/BlurBehind.h>
+#include <contour/ContourGuiApp.h>
 
 #include <crispy/utils.h>
 
 #include <QtCore/QDebug>
 #include <QtGui/QWindow>
-
-#include "ContourGuiApp.h"
 
 #if defined(_WIN32)
     #include <Windows.h>
@@ -61,7 +47,7 @@ namespace
         if (!qApp)
             return nullptr;
 
-        auto native = qApp->nativeInterface<QNativeInterface::QX11Application>();
+        auto* native = qApp->nativeInterface<QNativeInterface::QX11Application>();
         if (!native)
             return nullptr;
 
@@ -86,7 +72,7 @@ namespace
             return nullopt;
         auto const atomName = reply->atom;
 
-        return XcbPropertyInfo { xcbConnection, winId, atomName };
+        return XcbPropertyInfo { .connection = xcbConnection, .window = winId, .propertyAtom = atomName };
     }
 
     void setPropertyX11(QWindow* window, string const& name, uint32_t value)
@@ -103,6 +89,8 @@ namespace
                                 &value);
             xcb_flush(infoOpt.value().connection);
         }
+        else
+            errorLog()(R"(Could not set X11 property info for "{}" to {}.)", name, value);
     }
 
     void setPropertyX11(QWindow* window, string const& name, string const& value)
@@ -120,6 +108,8 @@ namespace
 
             xcb_flush(infoOpt.value().connection);
         }
+        else
+            errorLog()(R"(Could not set X11 property info for "{}" to "{}".)", name, value);
     }
 
     void unsetPropertyX11(QWindow* window, string const& name)
@@ -134,7 +124,7 @@ namespace
 } // namespace
 #endif
 
-void setEnabled(QWindow* window, bool enable, QRegion region)
+void setEnabled(QWindow* window, bool enable, QRegion const& region)
 {
     crispy::ignore_unused(region);
 

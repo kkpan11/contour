@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Screen.h>
@@ -18,10 +6,9 @@
 
 #include <crispy/logstore.h>
 
-#include <algorithm>
-#include <optional>
+#include <gsl/pointers>
 
-namespace terminal
+namespace vtbackend
 {
 
 // #define CONTOUR_LOG_VIEWPORT 1
@@ -29,14 +16,12 @@ namespace terminal
 class Viewport
 {
   public:
-#if defined(CONTOUR_LOG_VIEWPORT)
-    static auto inline const ViewportLog = logstore::Category("vt.viewport", "Logs viewport details.");
-#endif
+    static auto inline const viewportLog = logstore::category("vt.viewport", "Logs viewport details.");
 
     using ModifyEvent = std::function<void()>;
 
     explicit Viewport(Terminal& term, ModifyEvent onModify = {}):
-        _terminal { term }, _modified { onModify ? std::move(onModify) : []() {
+        _terminal { &term }, _modified { onModify ? std::move(onModify) : []() {
         } }
     {
     }
@@ -58,7 +43,7 @@ class Viewport
     {
         auto const a = -_scrollOffset.as<int>();
         auto const b = line.as<int>();
-        auto const c = unbox<int>(screenLineCount()) - _scrollOffset.as<int>();
+        auto const c = unbox(screenLineCount()) - _scrollOffset.as<int>();
         return a <= b && b < c;
     }
 
@@ -79,6 +64,8 @@ class Viewport
 
     bool makeVisibleWithinSafeArea(LineOffset line);
     bool makeVisibleWithinSafeArea(LineOffset line, LineCount paddingLines);
+
+    CellLocation clampCellLocation(CellLocation const& location) const noexcept;
 
     /// Translates a screen coordinate to a Grid-coordinate by applying
     /// the scroll-offset to it.
@@ -110,7 +97,7 @@ class Viewport
 
     // private fields
     //
-    Terminal& _terminal;
+    gsl::not_null<Terminal*> _terminal;
     ModifyEvent _modified;
     //!< scroll offset relative to scroll top (0) or nullopt if not scrolled into history
     ScrollOffset _scrollOffset;
@@ -118,4 +105,4 @@ class Viewport
     LineCount _scrollOff = LineCount(8);
 };
 
-} // namespace terminal
+} // namespace vtbackend

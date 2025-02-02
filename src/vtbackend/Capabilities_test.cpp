@@ -1,30 +1,18 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Capabilities.h>
 
 #include <crispy/utils.h>
 
-#include <fmt/format.h>
+#include <catch2/catch_test_macros.hpp>
 
-#include <catch2/catch.hpp>
+#include <format>
 
 using namespace std::string_view_literals;
 using crispy::fromHexString;
 
 TEST_CASE("Capabilities.codeFromName")
 {
-    terminal::capabilities::StaticDatabase tcap;
+    vtbackend::capabilities::StaticDatabase const tcap;
     auto const capName = fromHexString("62656c"sv).value();
     auto const tn = tcap.codeFromName(capName);
     REQUIRE(tn.has_value());
@@ -34,12 +22,12 @@ TEST_CASE("Capabilities.codeFromName")
 
 TEST_CASE("Capabilities.get")
 {
-    terminal::capabilities::StaticDatabase tcap;
+    vtbackend::capabilities::StaticDatabase const tcap;
     auto const rgb = tcap.stringCapability("RGB");
     REQUIRE(rgb == "8/8/8");
 
     auto const colors = tcap.numericCapability("colors");
-    REQUIRE(colors == 256);
+    REQUIRE(colors == std::numeric_limits<int16_t>::max());
 
     auto const bce = tcap.numericCapability("bce");
     REQUIRE(bce);

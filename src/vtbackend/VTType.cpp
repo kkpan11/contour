@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/VTType.h>
 
 #include <array>
@@ -18,7 +6,7 @@
 
 using namespace std;
 
-namespace terminal
+namespace vtbackend
 {
 
 string to_string(DeviceAttributes v)
@@ -31,7 +19,7 @@ string to_string(DeviceAttributes v)
         s += v;
     };
 
-    auto constexpr mappings = array<pair<DeviceAttributes, string_view>, 11> {
+    auto constexpr Mappings = array<pair<DeviceAttributes, string_view>, 11> {
         pair { DeviceAttributes::AnsiColor, "AnsiColor" },
         pair { DeviceAttributes::AnsiTextLocator, "AnsiTextLocator" },
         pair { DeviceAttributes::Columns132, "Columns132" },
@@ -45,7 +33,7 @@ string to_string(DeviceAttributes v)
         pair { DeviceAttributes::Windowing, "Windowing" },
     };
 
-    for (auto const& mapping: mappings)
+    for (auto const& mapping: Mappings)
         if (v & mapping.first)
             append(mapping.second);
 
@@ -62,7 +50,7 @@ string to_params(DeviceAttributes v)
         s += v;
     };
 
-    auto constexpr mappings = array<pair<DeviceAttributes, string_view>, 12> {
+    auto constexpr Mappings = array<pair<DeviceAttributes, string_view>, 12> {
         pair { DeviceAttributes::AnsiColor, "22" },
         pair { DeviceAttributes::AnsiTextLocator, "29" },
         pair { DeviceAttributes::CaptureScreenBuffer, "314" },
@@ -77,11 +65,11 @@ string to_params(DeviceAttributes v)
         pair { DeviceAttributes::Windowing, "18" },
     };
 
-    for (auto const& mapping: mappings)
+    for (auto const& mapping: Mappings)
         if (v & mapping.first)
             append(mapping.second);
 
     return s;
 }
 
-} // namespace terminal
+} // namespace vtbackend

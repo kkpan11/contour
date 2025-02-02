@@ -1,19 +1,8 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/SixelParser.h>
 
 #include <algorithm>
+#include <array>
 
 using std::clamp;
 using std::fill;
@@ -24,7 +13,7 @@ using std::vector;
 // VT 340 sixel protocol is defined here: https://vt100.net/docs/vt3xx-gp/chapter14.html
 
 using namespace std;
-namespace terminal
+namespace vtbackend
 {
 
 namespace
@@ -61,11 +50,11 @@ namespace
         if (t > 1)
             t -= 1;
         if (t < 1. / 6)
-            return p + (q - p) * 6 * t;
+            return p + ((q - p) * 6 * t);
         if (t < 1. / 2)
             return q;
         if (t < 2. / 3)
-            return p + (q - p) * (2. / 3 - t) * 6;
+            return p + ((q - p) * (2. / 3 - t) * 6);
         return p;
     }
 
@@ -82,13 +71,13 @@ namespace
         }
         else
         {
-            auto const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-            auto const p = 2 * l - q;
+            auto const q = l < 0.5 ? l * (1 + s) : l + s - (l * s);
+            auto const p = (2 * l) - q;
 
             auto result = RGBColor {};
-            result.red = static_cast<uint8_t>(hue2rgb(p, q, h + 1. / 3) * 255);
+            result.red = static_cast<uint8_t>(hue2rgb(p, q, h + (1. / 3)) * 255);
             result.green = static_cast<uint8_t>(hue2rgb(p, q, h) * 255);
-            result.blue = static_cast<uint8_t>(hue2rgb(p, q, h - 1. / 3) * 255);
+            result.blue = static_cast<uint8_t>(hue2rgb(p, q, h - (1. / 3)) * 255);
             return result;
         }
     }
@@ -96,7 +85,7 @@ namespace
 } // namespace
 
 // VT 340 default color palette (https://www.vt100.net/docs/vt3xx-gp/chapter2.html#S2.4)
-constexpr inline std::array<RGBColor, 16> defaultColors = {
+constexpr inline std::array<RGBColor, 16> DefaultColors = {
     rgb(0, 0, 0),       //  0: black
     rgb(51, 51, 204),   //  1: blue
     rgb(204, 33, 33),   //  2: red
@@ -126,8 +115,8 @@ SixelColorPalette::SixelColorPalette(unsigned int size, unsigned int maxSize): _
 
 void SixelColorPalette::reset()
 {
-    for (size_t i = 0; i < min(static_cast<size_t>(size()), defaultColors.size()); ++i)
-        _palette[i] = defaultColors[i];
+    for (size_t i = 0; i < min(static_cast<size_t>(size()), DefaultColors.size()); ++i)
+        _palette[i] = DefaultColors[i];
 }
 
 void SixelColorPalette::setSize(unsigned int newSize)
@@ -291,7 +280,7 @@ void SixelParser::leaveState()
                 auto const pad = _params[1];
 
                 auto const imageSize =
-                    _params.size() > 2
+                    _params.size() > 3
                         ? optional<ImageSize> { ImageSize { Width(_params[2]), Height(_params[3]) } }
                         : std::nullopt;
 
@@ -309,7 +298,7 @@ void SixelParser::leaveState()
             }
             else if (_params.size() == 5)
             {
-                auto constexpr convertValue = [](unsigned value) {
+                auto constexpr ConvertValue = [](unsigned value) {
                     // converts a color from range 0..100 to 0..255
                     return static_cast<uint8_t>(
                         static_cast<int>((static_cast<float>(value) * 255.0f) / 100.0f) % 256);
@@ -319,9 +308,9 @@ void SixelParser::leaveState()
                 switch (colorSpace)
                 {
                     case Colorspace::RGB: {
-                        auto const p1 = convertValue(_params[2]);
-                        auto const p2 = convertValue(_params[3]);
-                        auto const p3 = convertValue(_params[4]);
+                        auto const p1 = ConvertValue(_params[2]);
+                        auto const p2 = ConvertValue(_params[3]);
+                        auto const p3 = ConvertValue(_params[4]);
                         auto const color = RGBColor { p1, p2, p3 }; // TODO: convert HSL if requested
                         _events.setColor(index, color);
                         break;
@@ -334,10 +323,10 @@ void SixelParser::leaveState()
                         //
                         // (Hue angle seems to be shifted by 120 deg in other Sixel implementations.)
                         auto const h = static_cast<double>(_params[2]) - 120.0;
-                        auto const H = (h < 0 ? 360 + h : h) / 360.0;
-                        auto const S = static_cast<double>(_params[3]) / 100.0;
-                        auto const L = static_cast<double>(_params[3]) / 100.0;
-                        auto const rgb = hsl2rgb(H, S, L);
+                        auto const hc = (h < 0 ? 360 + h : h) / 360.0;
+                        auto const sc = static_cast<double>(_params[3]) / 100.0;
+                        auto const ls = static_cast<double>(_params[3]) / 100.0;
+                        auto const rgb = hsl2rgb(hc, sc, ls);
                         _events.setColor(index, rgb);
                         break;
                     }
@@ -382,7 +371,7 @@ void SixelImageBuilder::clear(RGBAColor fillColor)
     _sixelCursor = {};
 
     auto* p = _buffer.data();
-    auto* const e = p + _maxSize.area() * 4;
+    auto* const e = p + (_maxSize.area() * 4);
     while (p != e)
     {
         *p++ = fillColor.red();
@@ -394,31 +383,31 @@ void SixelImageBuilder::clear(RGBAColor fillColor)
 
 RGBAColor SixelImageBuilder::at(CellLocation coord) const noexcept
 {
-    auto const line = unbox<unsigned>(coord.line) % unbox<unsigned>(_size.height);
-    auto const col = unbox<unsigned>(coord.column) % unbox<unsigned>(_size.width);
-    auto const base = line * unbox<unsigned>(_size.width) * 4 + col * 4;
+    auto const line = unbox(coord.line) % unbox(_size.height);
+    auto const col = unbox(coord.column) % unbox(_size.width);
+    auto const base = (line * unbox(_size.width) * 4) + (col * 4);
     const auto* const color = &_buffer[base];
     return RGBAColor { color[0], color[1], color[2], color[3] };
 }
 
 void SixelImageBuilder::write(CellLocation const& coord, RGBColor const& value) noexcept
 {
-    if (unbox<int>(coord.line) >= 0 && unbox<int>(coord.line) < unbox<int>(_maxSize.height)
-        && unbox<int>(coord.column) >= 0 && unbox<int>(coord.column) < unbox<int>(_maxSize.width))
+    if (unbox(coord.line) >= 0 && unbox(coord.line) < unbox<int>(_maxSize.height) && unbox(coord.column) >= 0
+        && unbox(coord.column) < unbox<int>(_maxSize.width))
     {
         if (!_explicitSize)
         {
-            if (unbox<int>(coord.line) >= unbox<int>(_size.height))
+            if (unbox(coord.line) >= unbox<int>(_size.height))
                 _size.height = Height::cast_from(coord.line.as<unsigned int>() + _aspectRatio);
-            if (unbox<int>(coord.column) >= unbox<int>(_size.width))
+            if (unbox(coord.column) >= unbox<int>(_size.width))
                 _size.width = Width::cast_from(coord.column + 1);
         }
 
         for (unsigned int i = 0; i < _aspectRatio; ++i)
         {
-            auto const base = (coord.line.as<unsigned int>() + i)
-                                  * unbox<unsigned int>((_explicitSize ? _size.width : _maxSize.width)) * 4u
-                              + unbox<unsigned int>(coord.column) * 4u;
+            auto const base = ((coord.line.as<unsigned int>() + i)
+                               * unbox((_explicitSize ? _size.width : _maxSize.width)) * 4u)
+                              + (unbox<unsigned int>(coord.column) * 4u);
             _buffer[base + 0] = value.red;
             _buffer[base + 1] = value.green;
             _buffer[base + 2] = value.blue;
@@ -446,7 +435,7 @@ void SixelImageBuilder::newline()
 {
     _sixelCursor.column = {};
     if (unbox<unsigned int>(_sixelCursor.line) + _sixelBandHeight
-        < unbox<unsigned int>(_explicitSize ? _size.height : _maxSize.height))
+        < unbox(_explicitSize ? _size.height : _maxSize.height))
         _sixelCursor.line = LineOffset::cast_from(_sixelCursor.line.as<unsigned int>() + _sixelBandHeight);
 }
 
@@ -470,12 +459,12 @@ void SixelImageBuilder::render(int8_t sixel)
 {
     // TODO: respect aspect ratio!
     auto const x = _sixelCursor.column;
-    if (unbox<int>(x) < unbox<int>((_explicitSize ? _size.width : _maxSize.width)))
+    if (unbox(x) < unbox<int>((_explicitSize ? _size.width : _maxSize.width)))
     {
         for (unsigned int i = 0; i < 6; ++i)
         {
             auto const y = _sixelCursor.line + static_cast<int>(i * _aspectRatio);
-            auto const pos = CellLocation { y, x };
+            auto const pos = CellLocation { .line = y, .column = x };
             auto const pin = 1 << i;
             auto const pinned = (sixel & pin) != 0;
             if (pinned)
@@ -487,7 +476,7 @@ void SixelImageBuilder::render(int8_t sixel)
 
 void SixelImageBuilder::finalize()
 {
-    if (unbox<int>(_size.height) == 1)
+    if (unbox(_size.height) == 1)
     {
         _size.height = Height::cast_from(_sixelCursor.line.as<unsigned int>() * _aspectRatio);
         _buffer.resize(_size.area() * 4);
@@ -496,9 +485,9 @@ void SixelImageBuilder::finalize()
     if (!_explicitSize)
     {
         Buffer tempBuffer(static_cast<size_t>(_size.height.value * _size.width.value) * 4);
-        for (auto i = 0; i < unbox<int>(_size.height); ++i)
+        for (auto i = 0u; i < unbox(_size.height); ++i)
         {
-            for (auto j = 0; j < unbox<int>(_size.width); ++j)
+            for (auto j = 0u; j < unbox(_size.width); ++j)
             {
                 std::copy_n(_buffer.begin() + i * unbox<long>(_maxSize.width) * 4,
                             _size.width.value * 4,
@@ -510,4 +499,4 @@ void SixelImageBuilder::finalize()
     }
 }
 
-} // namespace terminal
+} // namespace vtbackend

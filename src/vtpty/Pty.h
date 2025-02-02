@@ -1,30 +1,19 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <vtpty/ImageSize.h>
 #include <vtpty/PageSize.h>
 
 #include <crispy/BufferObject.h>
-#include <crispy/ImageSize.h>
-#include <crispy/boxed.h>
 #include <crispy/logstore.h>
 
 #include <chrono>
 #include <optional>
 #include <string_view>
 
-namespace terminal
+#include <boxed-cpp/boxed.hpp>
+
+namespace vtpty
 {
 
 namespace detail
@@ -35,8 +24,8 @@ namespace detail
     // clang-format on
 } // namespace detail
 
-using PtyMasterHandle = crispy::boxed<std::uintptr_t, detail::PtyMasterHandle>;
-using PtySlaveHandle = crispy::boxed<std::uintptr_t, detail::PtySlaveHandle>;
+using PtyMasterHandle = boxed::boxed<std::uintptr_t, detail::PtyMasterHandle>;
+using PtySlaveHandle = boxed::boxed<std::uintptr_t, detail::PtySlaveHandle>;
 using PtyHandle = std::uintptr_t;
 
 class PtySlave
@@ -63,7 +52,11 @@ class PtySlaveDummy: public PtySlave
 class Pty
 {
   public:
-    using ReadResult = std::optional<std::tuple<std::string_view, bool>>;
+    struct ReadResult
+    {
+        std::string_view data {};
+        bool fromStdoutFastPipe = false;
+    };
 
     virtual ~Pty() = default;
 
@@ -76,6 +69,9 @@ class Pty
     ///
     /// This is automatically invoked when the destructor is called.
     virtual void close() = 0;
+
+    /// Blocks until the underlying PTY is closed.
+    virtual void waitForClosed() = 0;
 
     /// Returns true if the underlying PTY is closed, otherwise false.
     [[nodiscard]] virtual bool isClosed() const noexcept = 0;
@@ -90,9 +86,9 @@ class Pty
     /// @returns A view to the consumed buffer. The boolean in the ReadResult
     ///          indicates whether or not this data was coming through
     ///          the stdout-fastpipe.
-    [[nodiscard]] virtual ReadResult read(crispy::BufferObject<char>& storage,
-                                          std::chrono::milliseconds timeout,
-                                          size_t size) = 0;
+    [[nodiscard]] virtual std::optional<ReadResult> read(crispy::buffer_object<char>& storage,
+                                                         std::optional<std::chrono::milliseconds> timeout,
+                                                         size_t size) = 0;
 
     /// Inerrupts the read() operation on this PTY if a read() is currently in progress.
     ///
@@ -104,23 +100,22 @@ class Pty
 
     /// Writes to the PTY device, so the other end can read from it.
     ///
-    /// @param buf    Buffer of data to be written.
-    /// @param size   Number of bytes in @p buf to write.
+    /// @param buf      Buffer of data to be written.
     ///
     /// @returns Number of bytes written or -1 on error.
-    [[nodiscard]] virtual int write(char const* buf, size_t size) = 0;
+    [[nodiscard]] virtual int write(std::string_view buf) = 0;
 
     /// @returns current underlying window size in characters width and height.
     [[nodiscard]] virtual PageSize pageSize() const noexcept = 0;
 
     /// Resizes underlying window buffer by given character width and height.
-    virtual void resizeScreen(PageSize cells, std::optional<crispy::ImageSize> pixels = std::nullopt) = 0;
+    virtual void resizeScreen(PageSize cells, std::optional<ImageSize> pixels = std::nullopt) = 0;
 };
 
-[[nodiscard]] std::unique_ptr<Pty> createPty(PageSize pageSize, std::optional<crispy::ImageSize> viewSize);
+[[nodiscard]] std::unique_ptr<Pty> createPty(PageSize pageSize, std::optional<ImageSize> viewSize);
 
-auto const inline PtyLog = logstore::Category("pty", "Logs general PTY informations.");
-auto const inline PtyInLog = logstore::Category("pty.input", "Logs PTY raw input.");
-auto const inline PtyOutLog = logstore::Category("pty.output", "Logs PTY raw output.");
+auto const inline ptyLog = logstore::category("pty", "Logs general PTY informations.");
+auto const inline ptyInLog = logstore::category("pty.input", "Logs PTY raw input.");
+auto const inline ptyOutLog = logstore::category("pty.output", "Logs PTY raw output.");
 
-} // namespace terminal
+} // namespace vtpty

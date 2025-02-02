@@ -1,27 +1,13 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <fmt/format.h>
-
-#include <array>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
 
-namespace terminal::capabilities
+namespace vtbackend::capabilities
 {
 
 // TCap Code - terminal capability code, a unique 2-byte identifier.
@@ -33,7 +19,7 @@ struct Code
 
     [[nodiscard]] std::string hex() const
     {
-        return fmt::format("{:02X}{:02X}", unsigned((code >> 8) & 0xFF), unsigned(code & 0xFF));
+        return std::format("{:02X}{:02X}", unsigned((code >> 8) & 0xFF), unsigned(code & 0xFF));
     }
 
     constexpr Code() noexcept = default;
@@ -65,9 +51,9 @@ struct Def
 };
 
 // {{{ variable names
-constexpr auto inline auto_left_margin = Def { Code { "am" }, "am" };
-constexpr auto inline can_change = Def { Code { "cc" }, "ccc" };
-constexpr auto inline eat_newline_glitch = Def { Code { "xn" }, "xenl" };
+constexpr auto inline AutoLeftMargin = Def { Code { "am" }, "am" };
+constexpr auto inline CanChange = Def { Code { "cc" }, "ccc" };
+constexpr auto inline EatNewlineGlitch = Def { Code { "xn" }, "xenl" };
 // TODO ... (all the rest that is at least needed by us)
 // }}}
 
@@ -82,7 +68,7 @@ namespace literals
 class Database
 {
   public:
-    constexpr static inline unsigned npos = unsigned(-1);
+    constexpr static inline unsigned Npos = unsigned(-1);
 
     virtual ~Database() = default;
 
@@ -115,29 +101,13 @@ class StaticDatabase: public Database
     [[nodiscard]] std::string terminfo() const override;
 };
 
-} // namespace terminal::capabilities
+} // namespace vtbackend::capabilities
 
-namespace fmt
-{
 template <>
-struct formatter<terminal::capabilities::Code>
+struct std::formatter<vtbackend::capabilities::Code>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::capabilities::Code value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::capabilities::Code value, FormatContext& ctx)
-    {
-        if (value.code & 0xFF0000)
-            return fmt::format_to(ctx.out(),
-                                  "{}{}{}",
-                                  char((value.code >> 16) & 0xFF),
-                                  char((value.code >> 8) & 0xFF),
-                                  char(value.code & 0xFF));
-
-        return fmt::format_to(ctx.out(), "{}{}", char((value.code >> 8) & 0xFF), char(value.code & 0xFF));
+        return formatter<std::string>::format(value.hex(), ctx);
     }
 };
-} // namespace fmt

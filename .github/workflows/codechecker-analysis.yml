@@ -28,9 +28,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ubuntu_2004:
-    name: "Ubuntu Linux 22.04"
-    runs-on: ubuntu-22.04
+  ubuntu:
+    name: "Ubuntu Linux"
+    runs-on: ubuntu-latest
     steps:
       - name: "Check out repository"
         uses: actions/checkout@v3
@@ -45,14 +45,15 @@ jobs:
           REPOSITORY: "${{ github.event.repository.name }}"
       - name: "Install build dependencies"
         # Note: Keep this in sync with that in build.yml!
-        run: sudo ./scripts/install-deps.sh
+        run: sudo env QTVER="5" SYSDEP_ASSUME_YES="ON" ./scripts/install-deps.sh
       - name: "Post-fix embedded dependency permissions."
         run: sudo find _deps/sources -exec chown $UID {} \;
       - name: "Prepare building Contour"
         # Note: Keep this in sync with that in build.yml!
         run: |
-          BUILD_DIR="Build" \
+            BUILD_DIR="Build" \
             CMAKE_BUILD_TYPE="Debug" \
+            EXTRA_CMAKE_FLAGS="-DCONTOUR_QT_VERSION=5" \
             CXX="g++-11" \
             ./scripts/ci-prepare-contour.sh
 
@@ -82,13 +83,13 @@ jobs:
           # store-password: ${{ secrets.CODECHECKER_PASSWORD }}
 
       - name: "Upload HTML reports"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "contour-${{ steps.set_vars.outputs.VERSION_STRING }}-codechecker-${{ steps.codechecker.outputs.codechecker-version }}+${{ steps.codechecker.outputs.codechecker-hash }}-llvm-${{ steps.codechecker.outputs.llvm-version }}-results"
           path: "${{ steps.codechecker.outputs.result-html-dir }}"
           if-no-files-found: error
       - name: "Upload analysis failure reproducers"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "contour-${{ steps.set_vars.outputs.VERSION_STRING }}-codechecker-${{ steps.codechecker.outputs.codechecker-version }}+${{ steps.codechecker.outputs.codechecker-hash }}-llvm-${{ steps.codechecker.outputs.llvm-version }}-failure-zips"
           path: "${{ steps.codechecker.outputs.analyze-output }}/failed"

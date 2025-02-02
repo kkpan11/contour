@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Terminal.h>
@@ -21,11 +9,11 @@
 
 #include <libunicode/convert.h>
 
-namespace terminal
+namespace vtbackend
 {
 
-template <typename PtyDevice = MockPty>
-class MockTerm: public Terminal::Events
+template <typename PtyDevice = vtpty::MockPty>
+class MockTerm: public Terminal::NullEvents
 {
   public:
     MockTerm(ColumnCount columns, LineCount lines): MockTerm { PageSize { lines, columns } } {}
@@ -41,26 +29,36 @@ class MockTerm: public Terminal::Events
     }
 
     decltype(auto) pageSize() const noexcept { return terminal.pageSize(); }
-    decltype(auto) state() noexcept { return terminal.state(); }
-    decltype(auto) state() const noexcept { return terminal.state(); }
 
     PtyDevice& mockPty() noexcept { return static_cast<PtyDevice&>(terminal.device()); }
     PtyDevice const& mockPty() const noexcept { return static_cast<PtyDevice const&>(terminal.device()); }
 
     void writeToStdin(std::string_view text) { mockPty().stdinBuffer() += text; }
 
+    bool sendCharEvent(char32_t ch, Modifier modifier, Terminal::Timestamp now)
+    {
+        // Simulate physical key here, as we don't have a real keyboard.
+        auto const physicalKey = static_cast<uint32_t>(ch);
+
+        if (!terminal.sendCharEvent(ch, physicalKey, modifier, KeyboardEventType::Press, now))
+            return false;
+        terminal.sendCharEvent(ch, physicalKey, modifier, KeyboardEventType::Release, now);
+        return true;
+    }
+
     // Convenience method to type into stdin a sequence of characters.
-    void sendCharPressSequence(std::string_view sequence,
-                               Modifier modifier = Modifier::None,
-                               Terminal::Timestamp now = std::chrono::steady_clock::now())
+    void sendCharSequence(std::string_view sequence,
+                          Modifier modifier = Modifier::None,
+                          Terminal::Timestamp now = std::chrono::steady_clock::now())
     {
         auto const codepoints = unicode::convert_to<char32_t>(sequence);
         for (auto const codepoint: codepoints)
-            terminal.sendCharPressEvent(codepoint, modifier, now);
+            sendCharEvent(codepoint, modifier, now);
     }
 
     void writeToScreen(std::string_view text)
     {
+        vtpty::ptyOutLog()("writeToScreen: {}", crispy::escape(text));
         mockPty().appendStdOutBuffer(text);
         while (mockPty().isStdoutDataAvailable())
             terminal.processInputOnce();
@@ -74,11 +72,11 @@ class MockTerm: public Terminal::Events
     // Events overrides
     void setWindowTitle(std::string_view title) override { windowTitle = title; }
 
-    static terminal::Settings createSettings(PageSize pageSize,
-                                             LineCount maxHistoryLineCount,
-                                             size_t ptyReadBufferSize)
+    static vtbackend::Settings createSettings(PageSize pageSize,
+                                              LineCount maxHistoryLineCount,
+                                              size_t ptyReadBufferSize)
     {
-        auto settings = terminal::Settings {};
+        auto settings = vtbackend::Settings {};
         settings.pageSize = pageSize;
         settings.maxHistoryLineCount = maxHistoryLineCount;
         settings.ptyReadBufferSize = ptyReadBufferSize;
@@ -86,6 +84,7 @@ class MockTerm: public Terminal::Events
     }
 
     std::string const& replyData() const noexcept { return mockPty().stdinBuffer(); }
+    void resetReplyData() noexcept { mockPty().stdinBuffer().clear(); }
 
     void requestCaptureBuffer(LineCount lines, bool logical) override
     {
@@ -106,8 +105,8 @@ inline MockTerm<PtyDevice>::MockTerm(PageSize pageSize,
     if (logFilterString)
     {
         logstore::configure(logFilterString);
-        crispy::App::customizeLogStoreOutput();
+        crispy::app::customizeLogStoreOutput();
     }
 }
 
-} // namespace terminal
+} // namespace vtbackend

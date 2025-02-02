@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/assert.h>
@@ -26,20 +14,20 @@ namespace crispy
 
 /// Implements LRU (Least recently used) cache.
 template <typename Key, typename Value>
-class LRUCache
+class lru_cache
 {
   public:
-    struct Item
+    struct item
     {
         Key key;
         Value value;
     };
-    using ItemList = std::list<Item>;
+    using item_list = std::list<item>;
 
-    using iterator = typename ItemList::iterator;
-    using const_iterator = typename ItemList::const_iterator;
+    using iterator = typename item_list::iterator;
+    using const_iterator = typename item_list::const_iterator;
 
-    explicit LRUCache(std::size_t capacity): _capacity { capacity } {}
+    explicit lru_cache(std::size_t capacity): _capacity { capacity } {}
 
     [[nodiscard]] std::size_t size() const noexcept { return _items.size(); }
     [[nodiscard]] std::size_t capacity() const noexcept { return _capacity; }
@@ -54,7 +42,7 @@ class LRUCache
 
     [[nodiscard]] bool contains(Key key) const noexcept { return _itemByKeyMapping.count(key) != 0; }
 
-    [[nodiscard]] Value* try_get(Key key) const { return const_cast<LRUCache*>(this)->try_get(key); }
+    [[nodiscard]] Value* try_get(Key key) const { return const_cast<lru_cache*>(this)->try_get(key); }
 
     [[nodiscard]] Value* try_get(Key key)
     {
@@ -147,7 +135,7 @@ class LRUCache
         std::vector<Key> result;
         result.resize(_items.size());
         size_t i = 0;
-        for (Item const& item: _items)
+        for (item const& item: _items)
             result[i++] = item.key;
         return result;
     }
@@ -191,14 +179,14 @@ class LRUCache
 
     iterator emplaceItemToFront(Key key, Value&& value)
     {
-        _items.emplace_front(Item { key, std::move(value) });
+        _items.emplace_front(item { key, std::move(value) });
         _itemByKeyMapping.emplace(key, _items.begin());
         return _items.begin();
     }
 
     // private data
     //
-    std::list<Item> _items;
+    std::list<item> _items;
     std::unordered_map<Key, iterator> _itemByKeyMapping;
     std::size_t _capacity;
 };

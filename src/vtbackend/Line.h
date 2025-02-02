@@ -1,42 +1,30 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/CellUtil.h>
 #include <vtbackend/GraphicsAttributes.h>
 #include <vtbackend/Hyperlink.h>
+#include <vtbackend/cell/CellConcept.h>
 #include <vtbackend/primitives.h>
 
 #include <crispy/BufferObject.h>
 #include <crispy/Comparison.h>
 #include <crispy/assert.h>
+#include <crispy/flags.h>
+
+#include <libunicode/convert.h>
 
 #include <gsl/span>
 #include <gsl/span_ext>
 
-#include <iterator>
-#include <sstream>
 #include <string>
 #include <variant>
 #include <vector>
 
-#include <libunicode/convert.h>
-
-namespace terminal
+namespace vtbackend
 {
 
-enum class LineFlags : uint8_t
+enum class LineFlag : uint8_t
 {
     None = 0x0000,
     Wrappable = 0x0001,
@@ -45,6 +33,8 @@ enum class LineFlags : uint8_t
     // TODO: DoubleWidth  = 0x0010,
     // TODO: DoubleHeight = 0x0020,
 };
+
+using LineFlags = crispy::flags<LineFlag>;
 
 // clang-format off
 template <typename, bool> struct OptionalProperty;
@@ -63,7 +53,7 @@ struct TrivialLineBuffer
     HyperlinkId hyperlink {};
 
     ColumnCount usedColumns {};
-    crispy::BufferFragment<char> text {};
+    crispy::buffer_fragment<char> text {};
 
     void reset(GraphicsAttributes attributes) noexcept
     {
@@ -75,14 +65,14 @@ struct TrivialLineBuffer
     }
 };
 
-template <typename Cell>
+template <CellConcept Cell>
 using InflatedLineBuffer = std::vector<Cell>;
 
 /// Unpacks a TrivialLineBuffer into an InflatedLineBuffer<Cell>.
-template <typename Cell>
+template <CellConcept Cell>
 InflatedLineBuffer<Cell> inflate(TrivialLineBuffer const& input);
 
-template <typename Cell>
+template <CellConcept Cell>
 using LineStorage = std::variant<TrivialLineBuffer, InflatedLineBuffer<Cell>>;
 
 /**
@@ -91,7 +81,7 @@ using LineStorage = std::variant<TrivialLineBuffer, InflatedLineBuffer<Cell>>;
  * TODO: Use custom allocator for ensuring cache locality of Cells to sibling lines.
  * TODO: Make the line optimization work.
  */
-template <typename Cell>
+template <CellConcept Cell>
 class Line
 {
   public:
@@ -109,19 +99,13 @@ class Line
     using reverse_iterator = typename InflatedBuffer::reverse_iterator;
     using const_iterator = typename InflatedBuffer::const_iterator;
 
-    Line(LineFlags flags, TrivialBuffer buffer):
-        _storage { std::move(buffer) }, _flags { static_cast<unsigned>(flags) }
-    {
-    }
+    Line(LineFlags flags, TrivialBuffer buffer): _storage { std::move(buffer) }, _flags { flags } {}
 
-    Line(LineFlags flags, InflatedBuffer buffer):
-        _storage { std::move(buffer) }, _flags { static_cast<unsigned>(flags) }
-    {
-    }
+    Line(LineFlags flags, InflatedBuffer buffer): _storage { std::move(buffer) }, _flags { flags } {}
 
     void reset(LineFlags flags, GraphicsAttributes attributes) noexcept
     {
-        _flags = static_cast<unsigned>(flags);
+        _flags = flags;
         if (isTrivialBuffer())
             trivialBuffer().reset(attributes);
         else
@@ -130,7 +114,7 @@ class Line
 
     void reset(LineFlags flags, GraphicsAttributes attributes, ColumnCount count) noexcept
     {
-        _flags = static_cast<unsigned>(flags);
+        _flags = flags;
         setBuffer(TrivialBuffer { count, attributes });
     }
 
@@ -143,7 +127,7 @@ class Line
             reset(flags, attributes);
         else
         {
-            _flags = static_cast<unsigned>(flags);
+            _flags = flags;
             for (Cell& cell: inflatedBuffer())
             {
                 cell.reset();
@@ -167,7 +151,7 @@ class Line
     /**
      * Fills this line with the given content.
      *
-     * @p start offset into this line of the first charater
+     * @p start offset into this line of the first character
      * @p sgr graphics rendition for the line starting at @c start until the end
      * @p ascii the US-ASCII characters to fill with
      */
@@ -177,7 +161,7 @@ class Line
 
         assert(unbox<size_t>(start) + ascii.size() <= buffer.size());
 
-        auto constexpr ASCII_Width = 1;
+        auto constexpr ASCII_Width = 1; // NOLINT
         auto const* s = ascii.data();
 
         Cell* i = &buffer[unbox<size_t>(start)];
@@ -231,7 +215,8 @@ class Line
             return unbox<size_t>(column) >= trivialBuffer().text.size()
                    || trivialBuffer().text[column.as<size_t>()] == 0x20;
         }
-        return inflatedBuffer().at(unbox<size_t>(column)).empty();
+        auto const& cell = inflatedBuffer().at(unbox<size_t>(column));
+        return cell.empty() || (cell.codepointCount() == 1 && cell.codepoint(0) == 0x20);
     }
 
     [[nodiscard]] uint8_t cellWidthAt(ColumnOffset column) const noexcept
@@ -249,46 +234,43 @@ class Line
 
     [[nodiscard]] LineFlags flags() const noexcept { return static_cast<LineFlags>(_flags); }
 
-    [[nodiscard]] bool marked() const noexcept { return isFlagEnabled(LineFlags::Marked); }
-    void setMarked(bool enable) { setFlag(LineFlags::Marked, enable); }
+    [[nodiscard]] bool marked() const noexcept { return isFlagEnabled(LineFlag::Marked); }
+    void setMarked(bool enable) { setFlag(LineFlag::Marked, enable); }
 
-    [[nodiscard]] bool wrapped() const noexcept { return isFlagEnabled(LineFlags::Wrapped); }
-    void setWrapped(bool enable) { setFlag(LineFlags::Wrapped, enable); }
+    [[nodiscard]] bool wrapped() const noexcept { return isFlagEnabled(LineFlag::Wrapped); }
+    void setWrapped(bool enable) { setFlag(LineFlag::Wrapped, enable); }
 
-    [[nodiscard]] bool wrappable() const noexcept { return isFlagEnabled(LineFlags::Wrappable); }
-    void setWrappable(bool enable) { setFlag(LineFlags::Wrappable, enable); }
+    [[nodiscard]] bool wrappable() const noexcept { return isFlagEnabled(LineFlag::Wrappable); }
+    void setWrappable(bool enable) { setFlag(LineFlag::Wrappable, enable); }
 
     [[nodiscard]] LineFlags wrappableFlag() const noexcept
     {
-        return wrappable() ? LineFlags::Wrappable : LineFlags::None;
+        return wrappable() ? LineFlag::Wrappable : LineFlag::None;
     }
     [[nodiscard]] LineFlags wrappedFlag() const noexcept
     {
-        return marked() ? LineFlags::Wrapped : LineFlags::None;
+        return marked() ? LineFlag::Wrapped : LineFlag::None;
     }
     [[nodiscard]] LineFlags markedFlag() const noexcept
     {
-        return marked() ? LineFlags::Marked : LineFlags::None;
+        return marked() ? LineFlag::Marked : LineFlag::None;
     }
 
     [[nodiscard]] LineFlags inheritableFlags() const noexcept
     {
-        auto constexpr Inheritables = unsigned(LineFlags::Wrappable) | unsigned(LineFlags::Marked);
-        return static_cast<LineFlags>(_flags & Inheritables);
+        auto constexpr Inheritables = LineFlags({ LineFlag::Wrappable, LineFlag::Marked });
+        return _flags & Inheritables;
     }
 
-    void setFlag(LineFlags flag, bool enable) noexcept
+    void setFlag(LineFlags flags, bool enable) noexcept
     {
         if (enable)
-            _flags |= static_cast<unsigned>(flag);
+            _flags.enable(flags);
         else
-            _flags &= ~static_cast<unsigned>(flag);
+            _flags.disable(flags);
     }
 
-    [[nodiscard]] bool isFlagEnabled(LineFlags flag) const noexcept
-    {
-        return (_flags & static_cast<unsigned>(flag)) != 0;
-    }
+    [[nodiscard]] bool isFlagEnabled(LineFlags flags) const noexcept { return (_flags & flags).any(); }
 
     [[nodiscard]] InflatedBuffer reflow(ColumnCount newColumnCount);
     [[nodiscard]] std::string toUtf8() const;
@@ -312,18 +294,19 @@ class Line
     {
         return std::holds_alternative<TrivialBuffer>(_storage);
     }
-    [[nodiscard]] bool isInflatedBuffer() const noexcept
-    {
-        return !std::holds_alternative<TrivialBuffer>(_storage);
-    }
+    [[nodiscard]] bool isInflatedBuffer() const noexcept { return !isTrivialBuffer(); }
 
     void setBuffer(Storage buffer) noexcept { _storage = std::move(buffer); }
 
-    // Tests if the given text can be matched in this line at the exact given start column.
-    [[nodiscard]] bool matchTextAt(std::u32string_view text, ColumnOffset startColumn) const noexcept
+    // Tests if the given text can be matched in this line at the exact given start column, in sensetive
+    // or insensitive mode.
+    [[nodiscard]] bool matchTextAtWithSensetivityMode(std::u32string_view text,
+                                                      ColumnOffset startColumn,
+                                                      bool isCaseSensitive) const noexcept
     {
         if (isTrivialBuffer())
         {
+            assert(false);
             auto const u8Text = unicode::convert_to<char>(text);
             TrivialBuffer const& buffer = trivialBuffer();
             if (!buffer.usedColumns)
@@ -331,14 +314,15 @@ class Line
             auto const column = std::min(startColumn, boxed_cast<ColumnOffset>(buffer.usedColumns - 1));
             if (text.size() > static_cast<size_t>(column.value - buffer.usedColumns.value))
                 return false;
-            auto const resultIndex = buffer.text.view()
-                                         .substr(unbox<size_t>(column))
+
+            auto bufferCopyText = std::string(buffer.text.view());
+            std::transform(bufferCopyText.begin(), bufferCopyText.end(), bufferCopyText.begin(), ::tolower);
+            auto const resultIndex = bufferCopyText.substr(unbox<size_t>(column))
                                          .find(std::string_view(u8Text), unbox<size_t>(column));
             return resultIndex == 0;
         }
         else
         {
-            auto const u8Text = unicode::convert_to<char>(text);
             InflatedBuffer const& cells = inflatedBuffer();
             if (text.size() > unbox<size_t>(size()) - unbox<size_t>(startColumn))
                 return false;
@@ -346,7 +330,7 @@ class Line
             size_t i = 0;
             while (i < text.size())
             {
-                if (!CellUtil::beginsWith(text.substr(i), cells[baseColumn + i]))
+                if (!CellUtil::beginsWith(text.substr(i), cells[baseColumn + i], isCaseSensitive))
                     return false;
                 ++i;
             }
@@ -359,8 +343,14 @@ class Line
     // match is found at the right end of line it returns startColumn as it is and the partialMatchLength
     // is set equal to match found at the left end of line.
     [[nodiscard]] std::optional<SearchResult> search(std::u32string_view text,
-                                                     ColumnOffset startColumn) const noexcept
+                                                     ColumnOffset startColumn,
+                                                     bool isCaseSensitive) const noexcept
     {
+
+        auto matchTextAt = [&](auto text, auto baseColumn) {
+            return matchTextAtWithSensetivityMode(text, baseColumn, isCaseSensitive);
+        };
+
         if (isTrivialBuffer())
         {
             auto const u8Text = unicode::convert_to<char>(text);
@@ -404,8 +394,14 @@ class Line
     // match is found at the left end of line it returns startColumn as it is and the partialMatchLength
     // is set equal to match found at the left end of line.
     [[nodiscard]] std::optional<SearchResult> searchReverse(std::u32string_view text,
-                                                            ColumnOffset startColumn) const noexcept
+                                                            ColumnOffset startColumn,
+                                                            bool isCaseSensitive) const noexcept
     {
+
+        auto matchTextAt = [&](auto text, auto baseColumn) {
+            return matchTextAtWithSensetivityMode(text, baseColumn, isCaseSensitive);
+        };
+
         if (isTrivialBuffer())
         {
             auto const u8Text = unicode::convert_to<char>(text);
@@ -448,69 +444,45 @@ class Line
 
   private:
     Storage _storage;
-    unsigned _flags = 0;
+    LineFlags _flags;
 };
 
-constexpr LineFlags operator|(LineFlags a, LineFlags b) noexcept
-{
-    return LineFlags(unsigned(a) | unsigned(b));
-}
-
-constexpr LineFlags operator~(LineFlags a) noexcept
-{
-    return LineFlags(~unsigned(a));
-}
-
-constexpr LineFlags operator&(LineFlags a, LineFlags b) noexcept
-{
-    return LineFlags(unsigned(a) & unsigned(b));
-}
-
-template <typename Cell>
+template <CellConcept Cell>
 inline typename Line<Cell>::InflatedBuffer& Line<Cell>::inflatedBuffer()
 {
-    if (std::holds_alternative<TrivialBuffer>(_storage))
-        _storage = inflate<Cell>(std::get<TrivialBuffer>(_storage));
+    if (auto trivialbuffer = std::get_if<TrivialBuffer>(&_storage))
+        _storage = inflate<Cell>(*trivialbuffer);
     return std::get<InflatedBuffer>(_storage);
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 inline typename Line<Cell>::InflatedBuffer const& Line<Cell>::inflatedBuffer() const
 {
     return const_cast<Line<Cell>*>(this)->inflatedBuffer();
 }
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
 template <>
-struct formatter<terminal::LineFlags>
+struct std::formatter<vtbackend::LineFlags>: formatter<std::string>
 {
-    template <typename ParseContext>
-    auto parse(ParseContext& ctx)
+    auto format(const vtbackend::LineFlags flags, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(const terminal::LineFlags flags, FormatContext& ctx) const
-    {
-        static const std::array<std::pair<terminal::LineFlags, std::string_view>, 3> nameMap = {
-            std::pair { terminal::LineFlags::Wrappable, std::string_view("Wrappable") },
-            std::pair { terminal::LineFlags::Wrapped, std::string_view("Wrapped") },
-            std::pair { terminal::LineFlags::Marked, std::string_view("Marked") },
+        static const std::array<std::pair<vtbackend::LineFlags, std::string_view>, 3> nameMap = {
+            std::pair { vtbackend::LineFlag::Wrappable, std::string_view("Wrappable") },
+            std::pair { vtbackend::LineFlag::Wrapped, std::string_view("Wrapped") },
+            std::pair { vtbackend::LineFlag::Marked, std::string_view("Marked") },
         };
         std::string s;
         for (auto const& mapping: nameMap)
         {
-            if ((mapping.first & flags) != terminal::LineFlags::None)
+            if ((mapping.first & flags) != vtbackend::LineFlag::None)
             {
                 if (!s.empty())
                     s += ",";
                 s += mapping.second;
             }
         }
-        return fmt::format_to(ctx.out(), "{}", s);
+        return formatter<std::string>::format(s, ctx);
     }
 };
-} // namespace fmt

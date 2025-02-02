@@ -3,8 +3,7 @@
 set -e
 
 if test x$QTVER = x; then
-    # Default to Qt 5 for now.
-    QTVER=5
+    QTVER=6
 fi
 
 # Special environment variable to be used when only fetching and extracting
@@ -43,11 +42,11 @@ fetch_and_unpack()
     FULL_DISTFILE="$SYSDEPS_DIST_DIR/$DISTFILE"
 
     if ! test -f "$FULL_DISTFILE"; then
-        if which wget &>/dev/null; then
-            wget -O "$FULL_DISTFILE" "$URL"
-        elif which curl &>/dev/null; then
+        if command -v curl > /tmp/word 2>&1; then
             curl -L -o "$FULL_DISTFILE" "$URL"
-        elif which fetch &>/dev/null; then
+        elif command -v wget > /tmp/word 2>&1; then
+            wget -O "$FULL_DISTFILE" "$URL"
+        elif command -v fetch > /tmp/word 2>&1; then
             # FreeBSD
             fetch -o "$FULL_DISTFILE" "$URL"
         else
@@ -77,17 +76,9 @@ fetch_and_unpack()
 fetch_and_unpack_Catch2()
 {
     fetch_and_unpack \
-        Catch2-2.13.7 \
-        Catch2-2.13.7.tar.gz \
-        https://github.com/catchorg/Catch2/archive/refs/tags/v2.13.7.tar.gz
-}
-
-fetch_and_unpack_fmtlib()
-{
-    fetch_and_unpack \
-        fmt-9.1.0 \
-        fmtlib-9.1.0.tar.gz \
-        https://github.com/fmtlib/fmt/archive/refs/tags/9.1.0.tar.gz
+        Catch2-3.4.0 \
+        Catch2-3.4.0.tar.gz \
+        https://github.com/catchorg/Catch2/archive/refs/tags/v3.4.0.tar.gz
 }
 
 fetch_and_unpack_gsl()
@@ -100,7 +91,7 @@ fetch_and_unpack_gsl()
 
 fetch_and_unpack_termbenchpro()
 {
-    local termbench_pro_git_sha="a4feadd3a698e4fe2d9dd5b03d5f941534a25a91"
+    local termbench_pro_git_sha="f6c37988e6481b48a8b8acaf1575495e018e9747"
     fetch_and_unpack \
         termbench-pro-$termbench_pro_git_sha \
         termbench-pro-$termbench_pro_git_sha.tar.gz \
@@ -108,10 +99,20 @@ fetch_and_unpack_termbenchpro()
         termbench_pro
 }
 
+fetch_and_unpack_boxed()
+{
+    local boxed_cpp_version="1.4.3"
+    fetch_and_unpack \
+        boxed-cpp-$boxed_cpp_version \
+        boxed-cpp-$boxed_cpp_version.tar.gz \
+        https://github.com/contour-terminal/boxed-cpp/archive/refs/tags/v${boxed_cpp_version}.tar.gz \
+        boxed_cpp
+}
+
 fetch_and_unpack_libunicode()
 {
     if test x$LIBUNICODE_SRC_DIR = x; then
-        local libunicode_git_sha="b1b017c466038655872e1968acfc6a9880cf5d9f"
+        local libunicode_git_sha="817cb5900acdf6f60e2344a4c8f1f39262878a4b"
         fetch_and_unpack \
             libunicode-$libunicode_git_sha \
             libunicode-$libunicode_git_sha.tar.gz \
@@ -126,20 +127,30 @@ fetch_and_unpack_libunicode()
     fi
 }
 
+fetch_and_unpack_reflection_cpp()
+{
+    local reflection_cpp_git_sha="02484cd9ec16d7efc252ab8fd1f85d7264192418"
+    fetch_and_unpack \
+        reflection-cpp-$reflection_cpp_git_sha \
+        reflection-cpp-$reflection_cpp_git_sha.tar.gz \
+        https://github.com/contour-terminal/reflection-cpp/archive/$reflection_cpp_git_sha.tar.gz \
+        reflection_cpp
+}
+
 fetch_and_unpack_yaml_cpp()
 {
     fetch_and_unpack \
-        yaml-cpp-yaml-cpp-0.7.0 \
-        yaml-cpp-0.7.0.tar.gz \
-        https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.7.0.tar.gz
+        yaml-cpp-0.8.0 \
+        yaml-cpp-0.8.0.tar.gz \
+        https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
 }
 
 fetch_and_unpack_range()
 {
     fetch_and_unpack \
-        range-v3-0.11.0 \
-        range-v3-0.11.0.tar.gz \
-        https://github.com/ericniebler/range-v3/archive/refs/tags/0.11.0.tar.gz
+        range-v3-0.12.0 \
+        range-v3-0.12.0.tar.gz \
+        https://github.com/ericniebler/range-v3/archive/refs/tags/0.12.0.tar.gz
 }
 
 fetch_and_unpack_libutempter()
@@ -166,7 +177,6 @@ target_include_directories(utempter PUBLIC \${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(utempter PUBLIC
 "LIBEXECDIR=\"/usr/local/lib\"")" \
     > "$SYSDEPS_BASE_DIR/sources/libutempter-$libutempter_version/CMakeLists.txt"
-
 }
 
 prepare_fetch_and_unpack()
@@ -196,6 +206,7 @@ install_deps_popos()
         libqt5gui5
         libqt5opengl5-dev
         libqt5x11extras5-dev
+        libssh2-1-dev
         libutempter-dev
         libx11-xcb-dev
         libyaml-cpp-dev
@@ -213,7 +224,6 @@ install_deps_popos()
 
     fetch_and_unpack_libunicode
     fetch_and_unpack_gsl
-    fetch_and_unpack_fmtlib
     fetch_and_unpack_range
     fetch_and_unpack_Catch2
 
@@ -237,6 +247,7 @@ install_deps_ubuntu()
         libfontconfig1-dev
         libfreetype6-dev
         libharfbuzz-dev
+        libssh2-1-dev
         libutempter-dev
         libx11-xcb-dev
         libyaml-cpp-dev
@@ -250,11 +261,19 @@ install_deps_ubuntu()
         packages="$packages
             libgl1-mesa-dev
             libglvnd-dev
+            libqt6core5compat6-dev
             libqt6opengl6-dev
-            libqt6openglwidgets6
-            libqt6widgets6
+            qml6-module-qt-labs-platform
+            qml6-module-qtqml-workerscript
+            qml6-module-qtquick-controls
+            qml6-module-qtquick-layouts
+            qml6-module-qtmultimedia
+            qml6-module-qtquick-templates
+            qml6-module-qtquick-window
+            qml6-module-qt5compat-graphicaleffects
             qt6-base-dev
             qt6-base-dev-tools
+            qt6-declarative-dev
             qt6-multimedia-dev
             qt6-qpa-plugins
         "
@@ -264,7 +283,13 @@ install_deps_ubuntu()
             libqt5opengl5-dev
             libqt5x11extras5-dev
             qtbase5-dev
+            qtdeclarative5-dev
             qtmultimedia5-dev
+            qtquickcontrols2-5-dev
+            qml-module-qtmultimedia
+            qml-module-qtquick-controls
+            qml-module-qtquick-controls2
+            qml-module-qt-labs-platform
         "
     fi
 
@@ -274,22 +299,23 @@ install_deps_ubuntu()
 
     if [ ! "${NAME}" = "Debian GNU/Linux" ]; then
         # We cannot use [[ nor < here because that's not in /bin/sh.
-        if [ "$RELEASE" = "18.04" ]; then
-            # Old Ubuntu's (especially 18.04 LTS) doesn't have a proper std::filesystem implementation.
-            packages="$packages g++-8"
+        if [ "$RELEASE" = "22.04" ] || [ "$RELEASE" = "22.10"  ]; then
+            packages="$packages"
+        fi
+        if [ "$RELEASE" = "23.04" ]; then
+            packages="$packages qml6-moduile-qtquick3d-spatialaudio"
         fi
     fi
 
     fetch_and_unpack_gsl
     case $RELEASE in
-        "18.04" | "19.04" | "20.04" | "21.04" | "21.10" | "22.04")
+        "20.04" | "22.04" | "23.04")
             # Older Ubuntu's don't have a recent enough fmt / range-v3, so supply it.
             fetch_and_unpack_range
-            fetch_and_unpack_fmtlib
             fetch_and_unpack_Catch2
             ;;
         *)
-            packages="$packages libfmt-dev librange-v3-dev catch2"
+            packages="$packages librange-v3-dev catch2"
             ;;
     esac
 
@@ -301,18 +327,18 @@ install_deps_ubuntu()
 
 install_deps_FreeBSD()
 {
-    fetch_and_unpack_fmtlib
     fetch_and_unpack_libunicode
+    fetch_and_unpack_Catch2
 
     [ x$PREPARE_ONLY_EMBEDS = xON ] && return
 
-    # NB: libfmt is available in pkg, but it's not version >= 9.0.0 (as of 2022-09-03).
+    # NB: catch2 (as name "catch") is available in pkg, but it's not version >= 3.0.0.
     su root -c "pkg install $SYSDEP_ASSUME_YES \
-        catch \
         cmake \
         fontconfig \
         freetype2 \
         harfbuzz \
+        libssh2 \
         microsoft-gsl \
         ncurses \
         ninja \
@@ -328,10 +354,36 @@ install_deps_FreeBSD()
     "
 }
 
+
+install_deps_OpenBSD()
+{
+
+    fetch_and_unpack_Catch2
+    fetch_and_unpack_gsl
+    fetch_and_unpack_yaml_cpp
+    fetch_and_unpack_range
+    fetch_and_unpack_libunicode
+    fetch_and_unpack_libutempter
+    [ x$PREPARE_ONLY_EMBEDS = xON ] && return
+
+    su root -c "pkg_add -DI \
+        cmake \
+        harfbuzz \
+        libssh2 \
+        ninja \
+        pkgconf \
+        qt6-qt5compa \
+        qt6 \
+        qt6-qtdeclarative \
+        qt6-qtmultimedia \
+        qt6-qttools \
+        xcb
+    "
+}
+
 install_deps_arch()
 {
     fetch_and_unpack_libunicode
-    fetch_and_unpack_fmtlib
     [ x$PREPARE_ONLY_EMBEDS = xON ] && return
 
     packages="
@@ -341,6 +393,7 @@ install_deps_arch()
         fontconfig \
         git \
         harfbuzz \
+        libssh2 \
         libxcb \
         microsoft-gsl \
         ninja \
@@ -356,6 +409,7 @@ install_deps_arch()
             qt6-base \
             qt6-declarative \
             qt6-multimedia \
+            qt6-shadertools \
             qt6-wayland \
         "
     else
@@ -366,14 +420,13 @@ install_deps_arch()
         "
     fi
 
-    sudo pacman -S -y $packages
+    sudo pacman -S -y --needed $packages
 }
 
 install_deps_suse()
 {
     fetch_and_unpack_libunicode
     fetch_and_unpack_gsl
-    fetch_and_unpack_fmtlib
 
     echo "SuSE: PREPARE_ONLY_EMBEDS=$PREPARE_ONLY_EMBEDS"
     [ x$PREPARE_ONLY_EMBEDS = xON ] && return
@@ -386,19 +439,39 @@ install_deps_suse()
         freetype-devel
         gcc-c++
         harfbuzz-devel
-        libqt5-qtbase
-        libqt5-qtbase-common-devel
-        libqt5-qtbase-devel
-        libqt5-qtmultimedia-devel
-        libqt5-qtx11extras-devel
-        libutempter-devel
+        utempter-devel
         libxcb-devel
+        libssh2-devel
         ncurses-devel
         ninja
         pkgconf
         range-v3-devel
         yaml-cpp-devel
     "
+
+    if test x$QTVER = x6; then
+        packages="$packages
+            qt6-base-common-devel
+            qt6-base-devel
+            qt6-gui-devel
+            qt6-multimedia-devel
+            qt6-multimedia-imports
+            qt6-opengl-devel
+            qt6-qml-devel
+            qt6-qt5compat-devel
+            qt6-qt5compat-imports
+            qt6-quick-devel
+            qt6-quickcontrols2-devel
+        "
+    else
+        packages="$packages
+            libqt5-qtbase
+            libqt5-qtbase-common-devel
+            libqt5-qtbase-devel
+            libqt5-qtmultimedia-devel
+            libqt5-qtx11extras-devel
+        "
+    fi
     # Sadly, gsl-devel system package is too old to be used.
     sudo zypper install $SYSDEP_ASSUME_YES $packages
 }
@@ -408,12 +481,14 @@ install_deps_fedora()
     local os_version=`grep VERSION_ID /etc/os-release | cut -d= -f2 | tr -d '"'`
 
     local packages="
+        catch-devel
         cmake
         extra-cmake-modules
         fontconfig-devel
         freetype-devel
         gcc-c++
         harfbuzz-devel
+        libssh2-devel
         libxcb-devel
         ninja-build
         pkgconf
@@ -424,24 +499,18 @@ install_deps_fedora()
 
     fetch_and_unpack_libunicode
     fetch_and_unpack_gsl
-    fetch_and_unpack_fmtlib
-
-    # catch-devel on Fedora 38 is too new, so we need to use the one we downloaded.
-    if test "$os_version" -lt 38; then
-        packages="$packages catch-devel"
-    else
-        fetch_and_unpack_Catch2
-    fi
 
     [ x$PREPARE_ONLY_EMBEDS = xON ] && return
 
     if test x$QTVER = x6; then
         packages="$packages
+            qt6-qt5compat-devel
             qt6-qtbase-devel
             qt6-qtbase-gui
             qt6-qtdeclarative-devel
             qt6-qtmultimedia-devel
             qt6-qtwayland
+            qt6-qtquickcontrols2-devel
         "
     else
         packages="$packages
@@ -449,6 +518,7 @@ install_deps_fedora()
             qt5-qtbase-gui
             qt5-qtmultimedia-devel
             qt5-qtx11extras-devel
+            qt5-qtquickcontrols2-devel
         "
     fi
     # Sadly, gsl-devel system package is too old to be used.
@@ -458,16 +528,13 @@ install_deps_fedora()
 
 install_deps_darwin()
 {
-    # NB: catch2 is available on brew but version 3, and we are still using version 2
-    # due to all the other supported platforms.
-    fetch_and_unpack_Catch2
-
     fetch_and_unpack_libunicode
 
     [ x$PREPARE_ONLY_EMBEDS = xON ] && return
 
     # NB: Also available in brew: mimalloc
-    brew install $SYSDEP_ASSUME_YES \
+    HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew install $SYSDEP_ASSUME_YES \
+        catch2 \
         cpp-gsl \
         fmt \
         fontconfig \
@@ -475,6 +542,7 @@ install_deps_darwin()
         harfbuzz \
         pkg-config \
         qt$QTVER \
+        libssh2 \
         range-v3 \
         yaml-cpp
 }
@@ -513,17 +581,18 @@ main()
             ;;
         debian)
             install_deps_ubuntu
-            fetch_and_unpack_fmtlib
             ;;
         Darwin)
             install_deps_darwin
             ;;
-        freebsd)
+        FreeBSD|freebsd)
             install_deps_FreeBSD
+            ;;
+        OpenBSD|openbsd)
+            install_deps_OpenBSD
             ;;
         *)
             fetch_and_unpack_Catch2
-            fetch_and_unpack_fmtlib
             fetch_and_unpack_gsl
             fetch_and_unpack_yaml_cpp
             fetch_and_unpack_range
@@ -535,7 +604,9 @@ main()
             ;;
     esac
 
+    fetch_and_unpack_boxed
     fetch_and_unpack_termbenchpro
+    fetch_and_unpack_reflection_cpp
 }
 
 main $*

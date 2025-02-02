@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <contour/CaptureScreen.h>
 
 #include <vtbackend/Functions.h>
@@ -20,10 +8,8 @@
 
 #include <crispy/utils.h>
 
-#include <fmt/format.h>
-
-#include <algorithm>
 #include <cstdlib>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -69,7 +55,7 @@ using namespace std::string_view_literals;
 namespace contour
 {
 
-class CaptureBufferCollector: public terminal::NullParserEvents
+class CaptureBufferCollector: public vtparser::NullParserEvents
 {
   public:
     std::ostream& output;
@@ -86,8 +72,8 @@ class CaptureBufferCollector: public terminal::NullParserEvents
 
     void dispatchPM() override
     {
-        auto const [code, offset] = terminal::parser::extractCodePrefix(capturedBuffer);
-        if (code == terminal::CaptureBufferCode)
+        auto const [code, offset] = vtparser::extractCodePrefix(capturedBuffer);
+        if (code == vtbackend::CaptureBufferCode)
         {
             auto const payload = string_view(capturedBuffer.data() + offset, capturedBuffer.size() - offset);
             if (splitByWord)
@@ -100,7 +86,7 @@ class CaptureBufferCollector: public terminal::NullParserEvents
             }
             else
                 output.write(payload.data(), static_cast<streamsize>(payload.size()));
-            if (payload.size() == 0)
+            if (payload.empty())
                 done = true;
         }
     }
@@ -167,7 +153,7 @@ namespace
 #endif
         }
 
-        int wait(timeval* timeout)
+        int wait(timeval* timeout) const
         {
 #if defined(_WIN32)
             auto const fd0 = GetStdHandle(STD_INPUT_HANDLE);
@@ -182,7 +168,9 @@ namespace
                 default: return -1;
             }
 #else
-            fd_set sin, sout, serr;
+            fd_set sin;
+            fd_set sout;
+            fd_set serr;
             FD_ZERO(&sin);
             FD_ZERO(&sout);
             FD_ZERO(&serr);
@@ -192,39 +180,39 @@ namespace
 #endif
         }
 
-        int write(char const* _buf, size_t _size)
+        int write(char const* buf, size_t size) const
         {
 #if defined(_WIN32)
             DWORD nwritten {};
-            if (WriteFile(
-                    GetStdHandle(STD_OUTPUT_HANDLE), _buf, static_cast<DWORD>(_size), &nwritten, nullptr))
+            if (WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, static_cast<DWORD>(size), &nwritten, nullptr))
                 return static_cast<int>(nwritten);
             else
                 return -1;
 #else
-            return static_cast<int>(::write(fd, _buf, _size));
+            return static_cast<int>(::write(fd, buf, size));
 #endif
         }
 
-        int write(string_view _text) { return write(_text.data(), _text.size()); }
+        [[nodiscard]] int write(string_view text) const { return write(text.data(), text.size()); }
 
-        int read(void* _buf, size_t _size)
+        int read(void* buf, size_t size) const
         {
 #if defined(_WIN32)
             DWORD nread {};
-            if (ReadFile(GetStdHandle(STD_INPUT_HANDLE), _buf, static_cast<DWORD>(_size), &nread, nullptr))
+            if (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buf, static_cast<DWORD>(size), &nread, nullptr))
                 return static_cast<int>(nread);
             else
                 return -1;
 #else
-            return static_cast<int>(::read(fd, _buf, _size));
+            return static_cast<int>(::read(fd, buf, size));
 #endif
         }
 
-        optional<tuple<int, int>> screenSize(timeval* timeout)
+        optional<tuple<int, int>> screenSize(timeval* timeout) const
         {
             // Naive implementation. TODO: use select() to poll and time out properly.
-            write("\033[18t");
+            if (write("\033[18t") < 0)
+                return nullopt;
 
             // Consume reply: `CSI 8 ; <LINES> ; <COLUMNS> t`
             string reply;
@@ -254,15 +242,15 @@ namespace
     };
 
     // Reads a response chunk.
-    bool readCaptureReply(TTY& _input, timeval* timeout, bool words, ostream& output)
+    bool readCaptureReply(TTY& input, timeval* timeout, bool words, ostream& output)
     {
         auto captureBufferCollector = CaptureBufferCollector { output, words };
-        auto parser = terminal::parser::Parser<terminal::ParserEvents> { captureBufferCollector };
+        auto parser = vtparser::Parser<vtparser::ParserEvents> { captureBufferCollector };
 
         // Response is of format: PM 314 ; <screen capture> ST`
         while (true)
         {
-            int rv = _input.wait(timeout);
+            int rv = input.wait(timeout);
             if (rv < 0)
             {
                 perror("select");
@@ -275,7 +263,7 @@ namespace
             }
 
             char buf[4096];
-            rv = _input.read(buf, sizeof(buf));
+            rv = input.read(buf, sizeof(buf));
             if (rv < 0)
             {
                 perror("read");
@@ -291,14 +279,14 @@ namespace
     }
 } // namespace
 
-bool captureScreen(CaptureSettings const& _settings)
+bool captureScreen(CaptureSettings const& settings)
 {
     auto tty = TTY {};
     if (!tty.configured)
         return false;
 
     auto constexpr MicrosPerSecond = 1'000'000;
-    auto const timeoutMicros = int(_settings.timeout * MicrosPerSecond);
+    auto const timeoutMicros = int(settings.timeout * MicrosPerSecond);
     auto timeout = timeval {};
     timeout.tv_sec = timeoutMicros / MicrosPerSecond;
     timeout.tv_usec = timeoutMicros % MicrosPerSecond;
@@ -311,27 +299,31 @@ bool captureScreen(CaptureSettings const& _settings)
     }
     auto const [numColumns, numLines] = screenSizeOpt.value();
 
-    if (_settings.verbosityLevel > 0)
-        cerr << fmt::format("Screen size: {}x{}. Capturing lines {} ({}) to file {}.\r\n",
+    if (settings.verbosityLevel > 0)
+        cerr << std::format("Screen size: {}x{}. Capturing lines {} ({}) to file {}.\r\n",
                             numColumns,
                             numLines,
-                            _settings.logicalLines ? "logical" : "physical",
-                            _settings.lineCount,
-                            _settings.words ? "words" : "lines",
-                            _settings.outputFile.data());
+                            settings.logicalLines ? "logical" : "physical",
+                            settings.lineCount,
+                            settings.words ? "words" : "lines",
+                            settings.outputFile);
 
     // request screen capture
     reference_wrapper<ostream> output(cout);
     unique_ptr<ostream> customOutput;
-    if (_settings.outputFile != "-"sv)
+    if (settings.outputFile != "-"sv)
     {
-        customOutput = make_unique<ofstream>(_settings.outputFile.data(), std::ios::trunc);
+        customOutput = make_unique<ofstream>(settings.outputFile.data(), std::ios::trunc);
         output = *customOutput;
     }
 
-    tty.write(fmt::format("\033[>{};{}t", _settings.logicalLines ? '1' : '0', _settings.lineCount));
+    if (tty.write(std::format("\033[>{};{}t", settings.logicalLines ? '1' : '0', settings.lineCount)) < 0)
+    {
+        cerr << "Could not request screen capture.\r\n";
+        return false;
+    }
 
-    return readCaptureReply(tty, &timeout, _settings.words, output);
+    return readCaptureReply(tty, &timeout, settings.words, output);
 }
 
 } // namespace contour

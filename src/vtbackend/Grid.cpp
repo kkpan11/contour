@@ -1,25 +1,12 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Grid.h>
 #include <vtbackend/primitives.h>
 
 #include <crispy/assert.h>
 #include <crispy/logstore.h>
 
-#include <fmt/format.h>
-
 #include <algorithm>
+#include <format>
 #include <iostream>
 
 using std::max;
@@ -28,25 +15,16 @@ using std::u32string;
 using std::u32string_view;
 using std::vector;
 
-namespace terminal
+namespace vtbackend
 {
 
-auto const inline GridLog = logstore::Category(
-    "vt.grid", "Grid related", logstore::Category::State::Disabled, logstore::Category::Visibility::Hidden);
+auto const inline gridLog = logstore::category(
+    "vt.grid", "Grid related", logstore::category::state::Disabled, logstore::category::visibility::Hidden);
 
 namespace detail
 {
-    template <typename... Args>
-    void logf([[maybe_unused]] Args&&... args)
-    {
-#if 1 // !defined(NDEBUG)
-        fmt::print(std::forward<Args>(args)...);
-        fmt::print("\n");
-#endif
-    }
-
-    template <typename Cell>
-    gsl::span<Cell> trimRight(gsl::span<Cell> cells)
+    template <CellConcept Cell>
+    gsl::span<Cell const> trimRight(gsl::span<Cell const> cells)
     {
         size_t n = cells.size();
         while (n && CellUtil::empty(cells[n - 1]))
@@ -54,20 +32,22 @@ namespace detail
         return cells.subspan(0, n);
     }
 
-    template <typename Cell>
+    template <CellConcept Cell>
     Lines<Cell> createLines(PageSize pageSize,
                             LineCount maxHistoryLineCount,
                             bool reflowOnResize,
                             GraphicsAttributes initialSGR)
     {
-        auto const defaultLineFlags = reflowOnResize ? LineFlags::Wrappable : LineFlags::None;
+        auto const defaultLineFlags = reflowOnResize ? LineFlag::Wrappable : LineFlag::None;
         auto const totalLineCount = unbox<size_t>(pageSize.lines + maxHistoryLineCount);
 
         Lines<Cell> lines;
         lines.reserve(totalLineCount);
 
         for ([[maybe_unused]] auto const _: ranges::views::iota(0u, totalLineCount))
-            lines.emplace_back(defaultLineFlags, TrivialLineBuffer { pageSize.columns, initialSGR });
+            lines.emplace_back(
+                defaultLineFlags,
+                TrivialLineBuffer { .displayWidth = pageSize.columns, .textAttributes = initialSGR });
 
         return lines;
     }
@@ -83,7 +63,7 @@ namespace detail
      *
      * @returns number of inserted lines
      */
-    template <typename Cell>
+    template <CellConcept Cell>
     LineCount addNewWrappedLines(
         Lines<Cell>& targetLines,
         ColumnCount newColumnCount,
@@ -101,7 +81,7 @@ namespace detail
         {
             auto from = logicalLineBuffer.begin();
             auto to = from + newColumnCount.as<std::ptrdiff_t>();
-            auto const wrappedFlag = i == 0 && initialNoWrap ? LineFlags::None : LineFlags::Wrapped;
+            auto const wrappedFlag = i == 0 && initialNoWrap ? LineFlag::None : LineFlag::Wrapped;
             targetLines.emplace_back(baseFlags | wrappedFlag, LineBuffer(from, to));
             logicalLineBuffer.erase(from, to);
             ++i;
@@ -109,7 +89,7 @@ namespace detail
 
         if (logicalLineBuffer.size() > 0)
         {
-            auto const wrappedFlag = i == 0 && initialNoWrap ? LineFlags::None : LineFlags::Wrapped;
+            auto const wrappedFlag = i == 0 && initialNoWrap ? LineFlag::None : LineFlag::Wrapped;
             ++i;
             logicalLineBuffer.resize(unbox<size_t>(newColumnCount));
             targetLines.emplace_back(baseFlags | wrappedFlag, std::move(logicalLineBuffer));
@@ -119,12 +99,9 @@ namespace detail
 
 } // namespace detail
 // {{{ Grid impl
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 Grid<Cell>::Grid(PageSize pageSize, bool reflowOnResize, MaxHistoryLineCount maxHistoryLineCount):
     _pageSize { pageSize },
-    _margin { Margin::Vertical { {}, _pageSize.lines.as<LineOffset>() - LineOffset(1) },
-              Margin::Horizontal { {}, _pageSize.columns.as<ColumnOffset>() - ColumnOffset(1) } },
     _reflowOnResize { reflowOnResize },
     _historyLimit { maxHistoryLineCount },
     _lines { detail::createLines<Cell>(
@@ -142,8 +119,7 @@ Grid<Cell>::Grid(PageSize pageSize, bool reflowOnResize, MaxHistoryLineCount max
     verifyState();
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::setMaxHistoryLineCount(MaxHistoryLineCount maxHistoryLineCount)
 {
     verifyState();
@@ -154,16 +130,14 @@ void Grid<Cell>::setMaxHistoryLineCount(MaxHistoryLineCount maxHistoryLineCount)
     verifyState();
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::clearHistory()
 {
     _linesUsed = _pageSize.lines;
     verifyState();
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::verifyState() const noexcept
 {
 #if !defined(NDEBUG)
@@ -174,8 +148,7 @@ void Grid<Cell>::verifyState() const noexcept
 #endif
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 std::string Grid<Cell>::renderAllText() const
 {
     std::string text;
@@ -190,8 +163,7 @@ std::string Grid<Cell>::renderAllText() const
     return text;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 std::string Grid<Cell>::renderMainPageText() const
 {
     std::string text;
@@ -205,45 +177,39 @@ std::string Grid<Cell>::renderMainPageText() const
     return text;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 Line<Cell>& Grid<Cell>::lineAt(LineOffset line) noexcept
 {
     // Require(*line < *_pageSize.lines);
     return _lines[unbox<long>(line)];
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 Line<Cell> const& Grid<Cell>::lineAt(LineOffset line) const noexcept
 {
     // Require(*line < *_pageSize.lines);
     return const_cast<Grid&>(*this).lineAt(line);
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 Cell& Grid<Cell>::at(LineOffset line, ColumnOffset column) noexcept
 {
     return useCellAt(line, column);
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 Cell& Grid<Cell>::useCellAt(LineOffset line, ColumnOffset column) noexcept
 {
     return lineAt(line).useCellAt(column);
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 Cell const& Grid<Cell>::at(LineOffset line, ColumnOffset column) const noexcept
 {
     return const_cast<Grid&>(*this).at(line, column);
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 gsl::span<Line<Cell>> Grid<Cell>::pageAtScrollOffset(ScrollOffset scrollOffset)
 {
     Require(unbox<LineCount>(scrollOffset) <= historyLineCount());
@@ -255,8 +221,7 @@ gsl::span<Line<Cell>> Grid<Cell>::pageAtScrollOffset(ScrollOffset scrollOffset)
     return gsl::span<Line<Cell>> { startLine, count };
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 gsl::span<Line<Cell> const> Grid<Cell>::pageAtScrollOffset(ScrollOffset scrollOffset) const
 {
     Require(unbox<LineCount>(scrollOffset) <= historyLineCount());
@@ -268,46 +233,50 @@ gsl::span<Line<Cell> const> Grid<Cell>::pageAtScrollOffset(ScrollOffset scrollOf
     return gsl::span<Line<Cell> const> { startLine, count };
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 gsl::span<Line<Cell> const> Grid<Cell>::mainPage() const
 {
     return pageAtScrollOffset({});
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 gsl::span<Line<Cell>> Grid<Cell>::mainPage()
 {
     return pageAtScrollOffset({});
 }
 // }}}
 // {{{ Grid impl: Line access
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 gsl::span<Cell const> Grid<Cell>::lineBufferRightTrimmed(LineOffset line) const noexcept
 {
     return detail::trimRight(lineBuffer(line));
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 std::string Grid<Cell>::lineText(LineOffset lineOffset) const
 {
     std::string line;
     line.reserve(unbox<size_t>(_pageSize.columns));
 
+    int skipCount = 0;
     for (Cell const& cell: lineBuffer(lineOffset))
+    {
+        if (skipCount > 0)
+        {
+            skipCount--;
+            continue;
+        }
         if (cell.codepointCount())
             line += cell.toUtf8();
         else
             line += ' '; // fill character
+        skipCount = cell.width() - 1;
+    }
 
     return line;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 std::string Grid<Cell>::lineTextTrimmed(LineOffset lineOffset) const
 {
     std::string output = lineText(lineOffset);
@@ -316,23 +285,28 @@ std::string Grid<Cell>::lineTextTrimmed(LineOffset lineOffset) const
     return output;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 std::string Grid<Cell>::lineText(Line<Cell> const& line) const
 {
     std::stringstream sstr;
+    int skipCount = 0;
     for (Cell const& cell: line.inflatedBuffer())
     {
+        if (skipCount > 0)
+        {
+            skipCount--;
+            continue;
+        }
         if (cell.codepointCount() == 0)
             sstr << ' ';
         else
             sstr << cell.toUtf8();
+        skipCount = cell.width() - 1;
     }
     return sstr.str();
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::setLineText(LineOffset line, std::string_view text)
 {
     size_t i = 0;
@@ -340,23 +314,21 @@ void Grid<Cell>::setLineText(LineOffset line, std::string_view text)
         useCellAt(line, ColumnOffset::cast_from(i++)).setCharacter(ch);
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 bool Grid<Cell>::isLineBlank(LineOffset line) const noexcept
 {
-    auto const is_blank = [](auto const& cell) noexcept {
+    auto const isBlank = [](auto const& cell) noexcept {
         return CellUtil::empty(cell);
     };
 
     auto const theLineBuffer = lineBuffer(line);
-    return std::all_of(theLineBuffer.begin(), theLineBuffer.end(), is_blank);
+    return std::all_of(theLineBuffer.begin(), theLineBuffer.end(), isBlank);
 }
 
 /**
  * Computes the relative line number for the bottom-most @p n logical lines.
  */
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 int Grid<Cell>::computeLogicalLineNumberFromBottom(LineCount n) const noexcept
 {
     int logicalLineCount = 0;
@@ -386,8 +358,7 @@ int Grid<Cell>::computeLogicalLineNumberFromBottom(LineCount n) const noexcept
 }
 // }}}
 // {{{ Grid impl: scrolling
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 LineCount Grid<Cell>::scrollUp(LineCount linesCountToScrollUp, GraphicsAttributes defaultAttributes) noexcept
 {
     verifyState();
@@ -396,12 +367,13 @@ LineCount Grid<Cell>::scrollUp(LineCount linesCountToScrollUp, GraphicsAttribute
     auto const linesAvailable = LineCount::cast_from(_lines.size() - unbox<size_t>(_linesUsed));
     if (std::holds_alternative<Infinite>(_historyLimit) && linesAvailable < linesCountToScrollUp)
     {
-        auto const linesToAllocate = unbox<int>(linesCountToScrollUp - linesAvailable);
+        auto const linesToAllocate = unbox(linesCountToScrollUp - linesAvailable);
 
         for ([[maybe_unused]] auto const _: ranges::views::iota(0, linesToAllocate))
         {
             _lines.emplace_back(defaultLineFlags(),
-                                TrivialLineBuffer { _pageSize.columns, GraphicsAttributes() });
+                                TrivialLineBuffer { .displayWidth = _pageSize.columns,
+                                                    .textAttributes = GraphicsAttributes() });
         }
         return scrollUp(linesCountToScrollUp, defaultAttributes);
     }
@@ -432,7 +404,8 @@ LineCount Grid<Cell>::scrollUp(LineCount linesCountToScrollUp, GraphicsAttribute
             fill_n(next(_lines.begin(), *_pageSize.lines),
                    unbox<size_t>(linesAppendCount),
                    Line<Cell> { defaultLineFlags(),
-                                TrivialLineBuffer { _pageSize.columns, defaultAttributes } });
+                                TrivialLineBuffer { .displayWidth = _pageSize.columns,
+                                                    .textAttributes = defaultAttributes } });
             rotateBuffersLeft(linesAppendCount);
         }
         if (linesAppendCount < linesCountToScrollUp)
@@ -450,8 +423,7 @@ LineCount Grid<Cell>::scrollUp(LineCount linesCountToScrollUp, GraphicsAttribute
     }
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 LineCount Grid<Cell>::scrollUp(LineCount n, GraphicsAttributes defaultAttributes, Margin margin) noexcept
 {
     verifyState();
@@ -460,11 +432,12 @@ LineCount Grid<Cell>::scrollUp(LineCount n, GraphicsAttributes defaultAttributes
 
     // these two booleans could be cached and updated whenever margin updates,
     // so not even this needs to be computed for the general case.
-    auto const fullHorizontal =
-        margin.horizontal
-        == Margin::Horizontal { ColumnOffset { 0 }, unbox<ColumnOffset>(_pageSize.columns) - 1 };
+    auto const fullHorizontal = margin.horizontal
+                                == Margin::Horizontal { .from = ColumnOffset { 0 },
+                                                        .to = unbox<ColumnOffset>(_pageSize.columns) - 1 };
     auto const fullVertical =
-        margin.vertical == Margin::Vertical { LineOffset(0), unbox<LineOffset>(_pageSize.lines) - 1 };
+        margin.vertical
+        == Margin::Vertical { .from = LineOffset(0), .to = unbox<LineOffset>(_pageSize.lines) - 1 };
 
     if (fullHorizontal)
     {
@@ -511,7 +484,7 @@ LineCount Grid<Cell>::scrollUp(LineCount n, GraphicsAttributes defaultAttributes
         for (LineOffset line = margin.vertical.to - *n2 + 1; line <= margin.vertical.to; ++line)
         {
             auto a = &useCellAt(line, margin.horizontal.from);
-            auto b = a + unbox<int>(margin.horizontal.length());
+            auto b = a + unbox(margin.horizontal.length());
             while (a != b)
             {
                 a->reset(defaultAttributes);
@@ -523,8 +496,7 @@ LineCount Grid<Cell>::scrollUp(LineCount n, GraphicsAttributes defaultAttributes
     return LineCount(0); // No full-margin lines scrolled up.
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::scrollDown(LineCount vN, GraphicsAttributes const& defaultAttributes, Margin const& margin)
 {
     verifyState();
@@ -534,11 +506,12 @@ void Grid<Cell>::scrollDown(LineCount vN, GraphicsAttributes const& defaultAttri
     // so not even this needs to be computed for the general case.
     auto const fullHorizontal =
         margin.horizontal
-        == Margin::Horizontal { ColumnOffset { 0 },
-                                unbox<ColumnOffset>(_pageSize.columns) - ColumnOffset(1) };
+        == Margin::Horizontal { .from = ColumnOffset { 0 },
+                                .to = unbox<ColumnOffset>(_pageSize.columns) - ColumnOffset(1) };
     auto const fullVertical =
         margin.vertical
-        == Margin::Vertical { LineOffset(0), unbox<LineOffset>(_pageSize.lines) - LineOffset(1) };
+        == Margin::Vertical { .from = LineOffset(0),
+                              .to = unbox<LineOffset>(_pageSize.lines) - LineOffset(1) };
 
     auto const n = std::min(vN, margin.vertical.length());
 
@@ -593,8 +566,7 @@ void Grid<Cell>::scrollDown(LineCount vN, GraphicsAttributes const& defaultAttri
     }
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::scrollLeft(GraphicsAttributes defaultAttributes, Margin margin) noexcept
 {
     for (LineOffset lineNo = margin.vertical.from; lineNo <= margin.vertical.to; ++lineNo)
@@ -613,19 +585,17 @@ void Grid<Cell>::scrollLeft(GraphicsAttributes defaultAttributes, Margin margin)
 
 // }}}
 // {{{ Grid impl: resize
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::reset()
 {
     _linesUsed = _pageSize.lines;
     _lines.rotate_right(_lines.zero_index());
-    for (int i = 0; i < unbox<int>(_pageSize.lines); ++i)
+    for (int i = 0; i < unbox(_pageSize.lines); ++i)
         _lines[i].reset(defaultLineFlags(), GraphicsAttributes {});
     verifyState();
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 CellLocation Grid<Cell>::growLines(LineCount newHeight, CellLocation cursor)
 {
     // Grow line count by splicing available lines from history back into buffer, if available,
@@ -657,7 +627,9 @@ CellLocation Grid<Cell>::growLines(LineCount newHeight, CellLocation cursor)
     auto const linesToFill = max(0, *newTotalLineCount - *currentTotalLineCount);
 
     for ([[maybe_unused]] auto const _: ranges::views::iota(0, linesToFill))
-        _lines.emplace_back(wrappableFlag, TrivialLineBuffer { _pageSize.columns, GraphicsAttributes {} });
+        _lines.emplace_back(
+            wrappableFlag,
+            TrivialLineBuffer { .displayWidth = _pageSize.columns, .textAttributes = GraphicsAttributes {} });
 
     _pageSize.lines += totalLinesToExtend;
     _linesUsed = min(_linesUsed + totalLinesToExtend, LineCount::cast_from(_lines.size()));
@@ -669,14 +641,14 @@ CellLocation Grid<Cell>::growLines(LineCount newHeight, CellLocation cursor)
     return cursorMove;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos, bool wrapPending)
 {
     if (_pageSize == newSize)
         return currentCursorPos;
 
-    GridLog()("resize {} -> {} (cursor {})", _pageSize, newSize, currentCursorPos);
+    gridLog()("resize {} -> {} (cursor {})", _pageSize, newSize, currentCursorPos);
 
     // Growing in line count with scrollback lines present will move
     // the scrollback lines into the visible area.
@@ -700,7 +672,7 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
         auto const numLinesToPushUp = numLinesToShrink - cutoffCount;
         auto const numLinesToPushUpCapped = min(numLinesToPushUp, maxHistoryLineCount());
 
-        GridLog()(" -> shrink lines: numLinesToShrink {}, linesAvailableBelowCursorBeforeShrink {}, "
+        gridLog()(" -> shrink lines: numLinesToShrink {}, linesAvailableBelowCursorBeforeShrink {}, "
                   "cutoff {}, pushUp "
                   "{}/{}",
                   numLinesToShrink,
@@ -724,13 +696,13 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
         Require(newHeight <= _pageSize.lines);
         if (*numLinesToPushUp)
         {
-            GridLog()(" -> numLinesToPushUp {}", numLinesToPushUp);
+            gridLog()(" -> numLinesToPushUp {}", numLinesToPushUp);
             Require(*cursor.line + 1 == *_pageSize.lines);
             rotateBuffersLeft(numLinesToPushUp);
             _pageSize.lines -= numLinesToPushUp;
             clampHistory();
             verifyState();
-            return CellLocation { -boxed_cast<LineOffset>(numLinesToPushUp), {} };
+            return CellLocation { .line = -boxed_cast<LineOffset>(numLinesToPushUp), .column = {} };
         }
 
         verifyState();
@@ -747,7 +719,7 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
                     line.resize(newColumnCount);
             _pageSize.columns = newColumnCount;
             verifyState();
-            return CellLocation { LineOffset(0), ColumnOffset(wrapPending ? 1 : 0) };
+            return CellLocation { .line = LineOffset(0), .column = ColumnOffset(wrapPending ? 1 : 0) };
         }
         else
         {
@@ -760,7 +732,7 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
             Lines<Cell> grownLines;
             LineBuffer
                 logicalLineBuffer; // Temporary state, representing wrapped columns from the line "below".
-            LineFlags logicalLineFlags = LineFlags::None;
+            LineFlags logicalLineFlags = LineFlag::None;
 
             auto const appendToLogicalLine = [&logicalLineBuffer](gsl::span<Cell const> cells) {
                 for (auto const& cell: cells)
@@ -780,19 +752,19 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
             [[maybe_unused]] auto const logLogicalLine =
                 [&logicalLineBuffer]([[maybe_unused]] LineFlags lineFlags,
                                      [[maybe_unused]] std::string_view msg) {
-                    GridLog()("{} |> \"{}\"", msg, Line<Cell>(lineFlags, logicalLineBuffer).toUtf8());
+                    gridLog()("{} |> \"{}\"", msg, Line<Cell>(lineFlags, logicalLineBuffer).toUtf8());
                 };
 
             for (int i = -*historyLineCount(); i < *_pageSize.lines; ++i)
             {
                 auto& line = _lines[i];
-                // logLogicalLine(line.flags(), fmt::format("Line[{:>2}]: next line: \"{}\"", i,
+                // logLogicalLine(line.flags(), std::format("Line[{:>2}]: next line: \"{}\"", i,
                 // line.toUtf8()));
                 Require(line.size() >= _pageSize.columns);
 
                 if (line.wrapped())
                 {
-                    // logLogicalLine(line.flags(), fmt::format(" - appending: \"{}\"",
+                    // logLogicalLine(line.flags(), std::format(" - appending: \"{}\"",
                     // line.toUtf8Trimmed()));
                     appendToLogicalLine(line.trim_blank_right());
                 }
@@ -809,7 +781,7 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
                     {
                         // logLogicalLine(line.flags(), " - start new logical line");
                         appendToLogicalLine(line.cells());
-                        logicalLineFlags = line.flags() & ~LineFlags::Wrapped;
+                        logicalLineFlags = line.flags().without(LineFlag::Wrapped);
                     }
                 }
             }
@@ -824,9 +796,10 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
                 // so fill the gap until we have a full page.
                 cy = _pageSize.lines - LineCount::cast_from(grownLines.size());
                 while (LineCount::cast_from(grownLines.size()) < _pageSize.lines)
-                    grownLines.emplace_back(
-                        defaultLineFlags(),
-                        TrivialLineBuffer { newColumnCount, GraphicsAttributes {}, GraphicsAttributes {} });
+                    grownLines.emplace_back(defaultLineFlags(),
+                                            TrivialLineBuffer { .displayWidth = newColumnCount,
+                                                                .textAttributes = GraphicsAttributes {},
+                                                                .fillAttributes = GraphicsAttributes {} });
 
                 Ensures(LineCount::cast_from(grownLines.size()) == _pageSize.lines);
             }
@@ -836,9 +809,10 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
             // Fill scrollback lines.
             auto const totalLineCount = unbox<size_t>(_pageSize.lines + maxHistoryLineCount());
             while (grownLines.size() < totalLineCount)
-                grownLines.emplace_back(
-                    defaultLineFlags(),
-                    TrivialLineBuffer { newColumnCount, GraphicsAttributes {}, GraphicsAttributes {} });
+                grownLines.emplace_back(defaultLineFlags(),
+                                        TrivialLineBuffer { .displayWidth = newColumnCount,
+                                                            .textAttributes = GraphicsAttributes {},
+                                                            .fillAttributes = GraphicsAttributes {} });
 
             _lines = std::move(grownLines);
             _pageSize.columns = newColumnCount;
@@ -847,7 +821,8 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
             rotateBuffersLeft(newHistoryLineCount);
 
             verifyState();
-            return CellLocation { -boxed_cast<LineOffset>(cy), ColumnOffset(wrapPending ? 1 : 0) };
+            return CellLocation { .line = -boxed_cast<LineOffset>(cy),
+                                  .column = ColumnOffset(wrapPending ? 1 : 0) };
         }
     };
 
@@ -925,6 +900,7 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
                 }
                 else
                 {
+                    line.setWrappable(true);
                     previousFlags = line.inheritableFlags();
                 }
 
@@ -940,9 +916,10 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
             Require(numLinesWritten >= _pageSize.lines);
 
             while (shrinkedLines.size() < totalLineCount)
-                shrinkedLines.emplace_back(
-                    LineFlags::None,
-                    TrivialLineBuffer { newColumnCount, GraphicsAttributes {}, GraphicsAttributes {} });
+                shrinkedLines.emplace_back(LineFlag::None,
+                                           TrivialLineBuffer { .displayWidth = newColumnCount,
+                                                               .textAttributes = GraphicsAttributes {},
+                                                               .fillAttributes = GraphicsAttributes {} });
 
             shrinkedLines.rotate_left(
                 unbox<size_t>(numLinesWritten - _pageSize.lines)); // maybe to be done outisde?
@@ -967,20 +944,20 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
     CellLocation cursor = currentCursorPos;
 
     // grow/shrink columns
-    using crispy::Comparison;
+    using crispy::comparison;
     switch (crispy::strongCompare(newSize.columns, _pageSize.columns))
     {
-        case Comparison::Greater: cursor += growColumns(newSize.columns); break;
-        case Comparison::Less: cursor = shrinkColumns(newSize.columns, newSize.lines, cursor); break;
-        case Comparison::Equal: break;
+        case comparison::Greater: cursor += growColumns(newSize.columns); break;
+        case comparison::Less: cursor = shrinkColumns(newSize.columns, newSize.lines, cursor); break;
+        case comparison::Equal: break;
     }
 
     // grow/shrink lines
     switch (crispy::strongCompare(newSize.lines, _pageSize.lines))
     {
-        case Comparison::Greater: cursor += growLines(newSize.lines, cursor); break;
-        case Comparison::Less: cursor += shrinkLines(newSize.lines, cursor); break;
-        case Comparison::Equal: break;
+        case comparison::Greater: cursor += growLines(newSize.lines, cursor); break;
+        case comparison::Less: cursor += shrinkLines(newSize.lines, cursor); break;
+        case comparison::Equal: break;
     }
 
     Ensures(_pageSize == newSize);
@@ -989,15 +966,13 @@ CellLocation Grid<Cell>::resize(PageSize newSize, CellLocation currentCursorPos,
     return cursor;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::clampHistory()
 {
     // TODO: needed?
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 void Grid<Cell>::appendNewLines(LineCount count, GraphicsAttributes attr)
 {
     auto const wrappableFlag = _lines.back().wrappableFlag();
@@ -1007,7 +982,7 @@ void Grid<Cell>::appendNewLines(LineCount count, GraphicsAttributes attr)
         // We've reached to history line count limit already.
         // Rotate lines that would fall off down to the bottom again in a clean state.
         // We do save quite some overhead due to avoiding unnecessary memory allocations.
-        for (int i = 0; i < unbox<int>(count); ++i)
+        for (int i = 0; i < unbox(count); ++i)
         {
             auto line = std::move(_lines.front());
             _lines.pop_front();
@@ -1020,17 +995,20 @@ void Grid<Cell>::appendNewLines(LineCount count, GraphicsAttributes attr)
     if (auto const n = std::min(count, _pageSize.lines); *n > 0)
     {
         generate_n(back_inserter(_lines), *n, [&]() {
-            return Line<Cell>(wrappableFlag, TrivialLineBuffer { _pageSize.columns, attr, attr });
+            return Line<Cell>(wrappableFlag,
+                              TrivialLineBuffer { .displayWidth = _pageSize.columns,
+                                                  .textAttributes = attr,
+                                                  .fillAttributes = attr });
         });
         clampHistory();
     }
 }
 // }}}
 // {{{ dumpGrid impl
-template <typename Cell>
+template <CellConcept Cell>
 std::ostream& dumpGrid(std::ostream& os, Grid<Cell> const& grid)
 {
-    os << fmt::format(
+    os << std::format(
         "main page lines: scrollback cur {} max {}, main page lines {}, used lines {}, zero index {}\n",
         grid.historyLineCount(),
         grid.maxHistoryLineCount(),
@@ -1039,20 +1017,20 @@ std::ostream& dumpGrid(std::ostream& os, Grid<Cell> const& grid)
         grid.zero_index());
 
     for (int const lineOffset:
-         ranges::views::iota(-unbox<int>(grid.historyLineCount()), unbox<int>(grid.pageSize().lines)))
+         ranges::views::iota(-unbox(grid.historyLineCount()), unbox(grid.pageSize().lines)))
     {
-        terminal::Line<Cell> const& lineAttribs = grid.lineAt(LineOffset(lineOffset));
+        vtbackend::Line<Cell> const& lineAttribs = grid.lineAt(LineOffset(lineOffset));
 
-        os << fmt::format("[{:>2}] \"{}\" | {}\n",
+        os << std::format("[{:>2}] \"{}\" | {}\n",
                           lineOffset,
                           grid.lineText(LineOffset::cast_from(lineOffset)),
-                          (unsigned) lineAttribs.flags());
+                          lineAttribs.flags());
     }
 
     return os;
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 std::string dumpGrid(Grid<Cell> const& grid)
 {
     std::stringstream sstr;
@@ -1061,8 +1039,7 @@ std::string dumpGrid(Grid<Cell> const& grid)
 }
 // }}}
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 CellLocationRange Grid<Cell>::wordRangeUnderCursor(CellLocation position,
                                                    u32string_view wordDelimiters) const noexcept
 {
@@ -1103,12 +1080,14 @@ CellLocationRange Grid<Cell>::wordRangeUnderCursor(CellLocation position,
             {
                 current.line++;
                 current.column = ColumnOffset(0);
-                current = stretchedColumn(CellLocation { current.line, current.column + 1 });
+                current =
+                    stretchedColumn(CellLocation { .line = current.line, .column = current.column + 1 });
             }
 
             if (*current.column + 1 < *pageSize().columns)
             {
-                current = stretchedColumn(CellLocation { current.line, current.column + 1 });
+                current =
+                    stretchedColumn(CellLocation { .line = current.line, .column = current.column + 1 });
             }
             else if (*current.line + 1 < *pageSize().lines)
             {
@@ -1128,8 +1107,7 @@ CellLocationRange Grid<Cell>::wordRangeUnderCursor(CellLocation position,
     return { left, right };
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 bool Grid<Cell>::cellEmptyOrContainsOneOf(CellLocation position, u32string_view delimiters) const noexcept
 {
     // Word selection may be off by one
@@ -1139,8 +1117,7 @@ bool Grid<Cell>::cellEmptyOrContainsOneOf(CellLocation position, u32string_view 
     return CellUtil::empty(cell) || delimiters.find(cell.codepoint(0)) != std::u32string_view::npos;
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 u32string Grid<Cell>::extractText(CellLocationRange range) const noexcept
 {
     if (range.first.line > range.second.line)
@@ -1191,12 +1168,14 @@ u32string Grid<Cell>::extractText(CellLocationRange range) const noexcept
     return output;
 }
 
-} // end namespace terminal
+} // end namespace vtbackend
 
 #include <vtbackend/cell/CompactCell.h>
-template class terminal::Grid<terminal::CompactCell>;
-template std::string terminal::dumpGrid<terminal::CompactCell>(terminal::Grid<terminal::CompactCell> const&);
+template class vtbackend::Grid<vtbackend::CompactCell>;
+template std::string vtbackend::dumpGrid<vtbackend::CompactCell>(
+    vtbackend::Grid<vtbackend::CompactCell> const&);
 
 #include <vtbackend/cell/SimpleCell.h>
-template class terminal::Grid<terminal::SimpleCell>;
-template std::string terminal::dumpGrid<terminal::SimpleCell>(terminal::Grid<terminal::SimpleCell> const&);
+template class vtbackend::Grid<vtbackend::SimpleCell>;
+template std::string vtbackend::dumpGrid<vtbackend::SimpleCell>(
+    vtbackend::Grid<vtbackend::SimpleCell> const&);

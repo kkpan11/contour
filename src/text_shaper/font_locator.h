@@ -1,26 +1,12 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <text_shaper/font.h>
 
-#include <fmt/format.h>
-
 #include <gsl/span>
 #include <gsl/span_ext>
 
+#include <format>
 #include <optional>
 #include <variant>
 #include <vector>
@@ -86,56 +72,37 @@ class font_locator
 
 } // namespace text
 
-namespace fmt // {{{
-{
 template <>
-struct formatter<text::font_path>
+struct std::formatter<text::font_path>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_path spec, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_path spec, FormatContext& ctx)
-    {
-        auto weightMod = spec.weight ? fmt::format(" {}", spec.weight.value()) : "";
-        auto slantMod = spec.slant ? fmt::format(" {}", spec.slant.value()) : "";
-        return fmt::format_to(ctx.out(), "path {}{}{}", spec.value, weightMod, slantMod);
+        auto weightMod = spec.weight ? std::format(" {}", spec.weight.value()) : "";
+        auto slantMod = spec.slant ? std::format(" {}", spec.slant.value()) : "";
+        return formatter<std::string>::format(std::format("path {}{}{}", spec.value, weightMod, slantMod),
+                                              ctx);
     }
 };
 
 template <>
-struct formatter<text::font_memory_ref>
+struct std::formatter<text::font_memory_ref>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_memory_ref ref, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_memory_ref ref, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "in-memory: {}", ref.identifier);
+        return formatter<std::string>::format(std::format("in-memory: {}", ref.identifier), ctx);
     }
 };
 
 template <>
-struct formatter<text::font_source>
+struct std::formatter<text::font_source>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_source source, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_source source, FormatContext& ctx)
-    {
+        std::string text;
         if (std::holds_alternative<text::font_path>(source))
-            return fmt::format_to(ctx.out(), "{}", std::get<text::font_path>(source));
-        if (std::holds_alternative<text::font_memory_ref>(source))
-            return fmt::format_to(ctx.out(), "{}", std::get<text::font_memory_ref>(source));
-        return fmt::format_to(ctx.out(), "UNKNOWN SOURCE");
+            text = std::format("{}", std::get<text::font_path>(source));
+        else if (std::holds_alternative<text::font_memory_ref>(source))
+            text = std::format("{}", std::get<text::font_memory_ref>(source));
+        return formatter<std::string>::format(text, ctx);
     }
 };
-} // namespace fmt

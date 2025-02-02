@@ -10,32 +10,35 @@ class ThirdParty {
     [string] $Macro
 }
 
+$libunicode_git_sha="817cb5900acdf6f60e2344a4c8f1f39262878a4b"
+$reflection_cpp_git_sha="02484cd9ec16d7efc252ab8fd1f85d7264192418"
+
 # Take care, order matters, at least as much as dependencies are of concern.
 $ThirdParties =
 @(
     [ThirdParty]@{
-        Folder  = "GSL-3.1.0";
-        Archive = "gsl-3.1.0.zip";
-        URI     = "https://github.com/microsoft/GSL/archive/refs/tags/v3.1.0.zip";
-        Macro   = ""
+        Folder  = "reflection-cpp-${reflection_cpp_git_sha}";
+        Archive = "reflection-cpp-${reflection_cpp_git_sha}.zip";
+        URI     = "https://github.com/contour-terminal/reflection-cpp/archive/${reflection_cpp_git_sha}.zip";
+        Macro   = "reflection_cpp"
     };
     [ThirdParty]@{
-        Folder  = "Catch2-2.13.7";
-        Archive = "Catch2-2.13.7.zip";
-        URI     = "https://github.com/catchorg/Catch2/archive/refs/tags/v2.13.7.zip";
-        Macro   = ""
-    };
-    [ThirdParty]@{
-        Folder  = "libunicode-b1b017c466038655872e1968acfc6a9880cf5d9f";
-        Archive = "libunicode-b1b017c466038655872e1968acfc6a9880cf5d9f.zip";
-        URI     = "https://github.com/contour-terminal/libunicode/archive/b1b017c466038655872e1968acfc6a9880cf5d9f.zip";
+        Folder  = "libunicode-${libunicode_git_sha}";
+        Archive = "libunicode-${libunicode_git_sha}.zip";
+        URI     = "https://github.com/contour-terminal/libunicode/archive/${libunicode_git_sha}.zip";
         Macro   = "libunicode"
     };
     [ThirdParty]@{
-        Folder  = "termbench-pro-a4feadd3a698e4fe2d9dd5b03d5f941534a25a91";
-        Archive = "termbench-pro-a4feadd3a698e4fe2d9dd5b03d5f941534a25a91.zip";
-        URI     = "https://github.com/contour-terminal/termbench-pro/archive/a4feadd3a698e4fe2d9dd5b03d5f941534a25a91.zip";
+        Folder  = "termbench-pro-f6c37988e6481b48a8b8acaf1575495e018e9747";
+        Archive = "termbench-pro-f6c37988e6481b48a8b8acaf1575495e018e9747.zip";
+        URI     = "https://github.com/contour-terminal/termbench-pro/archive/f6c37988e6481b48a8b8acaf1575495e018e9747.zip";
         Macro   = "termbench_pro"
+    }
+    [ThirdParty]@{
+        Folder  = "boxed-cpp-1.4.3";
+        Archive = "boxed-cpp-1.4.3.zip";
+        URI     = "https://github.com/contour-terminal/boxed-cpp/archive/refs/tags/v1.4.3.zip";
+        Macro   = "boxed_cpp"
     }
 )
 
@@ -114,7 +117,7 @@ function Run {
     }
 
     if ($option -ne "--skip-vcpkg") {
-        vcpkg install freetype fontconfig harfbuzz fmt range-v3 yaml-cpp --triplet x64-windows
+        vcpkg install --triplet x64-windows
         # qt5-base
     }
 }

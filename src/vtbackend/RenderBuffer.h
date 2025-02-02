@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/CellFlags.h>
@@ -21,13 +9,15 @@
 
 #include <vtrasterizer/RenderTarget.h>
 
+#include <gsl/pointers>
+
 #include <atomic>
 #include <chrono>
 #include <mutex>
 #include <optional>
 #include <vector>
 
-namespace terminal
+namespace vtbackend
 {
 
 struct RenderAttributes
@@ -94,22 +84,22 @@ struct RenderBuffer
 /// @see RenderBuffer
 struct RenderBufferRef
 {
-    RenderBuffer const& buffer;
-    std::mutex& guard;
+    gsl::not_null<RenderBuffer const*> buffer;
+    gsl::not_null<std::mutex*> guard;
 
-    [[nodiscard]] RenderBuffer const& get() const noexcept { return buffer; }
+    [[nodiscard]] RenderBuffer const& get() const noexcept { return *buffer; }
 
-    RenderBufferRef(RenderBuffer const& buf, std::mutex& lock): buffer { buf }, guard { lock }
+    RenderBufferRef(RenderBuffer const& buf, std::mutex& lock): buffer { &buf }, guard { &lock }
     {
-        guard.lock();
+        guard->lock();
     }
 
-    ~RenderBufferRef() { guard.unlock(); }
+    ~RenderBufferRef() { guard->unlock(); }
 };
 
 /// Reflects the current state of a RenderDoubleBuffer object.
 ///
-enum class RenderBufferState
+enum class RenderBufferState : uint8_t
 {
     WaitingForRefresh,
     RefreshBuffersAndTrySwap,
@@ -151,4 +141,4 @@ struct RenderDoubleBuffer
     bool swapBuffers(std::chrono::steady_clock::time_point now) noexcept;
 };
 
-} // namespace terminal
+} // namespace vtbackend

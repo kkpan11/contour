@@ -11,14 +11,14 @@ You can also see some live development on [Twitch](https://www.twitch.tv/christi
 
 ## Some general tips:
 
-- Please keep in mind, this project is still in its very early stages (started Augost 2019) and thus
+- Please keep in mind, this project is still in its very early stages (started August 2019) and thus
   under very active development. It's not perfect nor bug-free yet.
 - Please fork the main repository at [github.com/contour-terminal/contour](https://github.com/contour-terminal/contour.git)
   then git clone your repository into your preferred location.
 - Always work on a branch based off the master branch, if it is a feature or a bugfix.
 - Please have a look at the [coding style guidelines](internals/CODING_STYLE.md).
 - When creating a pull request, please see if you can keep the commits as atomic as possible.
-  That is, a single reasonabily sized feature or functionality should be committed as
+  That is, a single reasonably sized feature or functionality should be committed as
   one single commit. If you can branch out a some functionality, let it be a more generalized API or
   refactor of something that can stand on their own, then those deserve their own commits.
 - Every new feature should ideally be unit-testable, this isn't always possible or easy for pure GUI

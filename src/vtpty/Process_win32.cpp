@@ -1,31 +1,18 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtpty/ConPty.h>
 #include <vtpty/Process.h>
 #include <vtpty/Pty.h>
 
 #include <crispy/assert.h>
 #include <crispy/overloaded.h>
-#include <crispy/stdfs.h>
-
-#include <fmt/format.h>
 
 #include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <format>
 #include <fstream>
 #include <mutex>
 #include <numeric>
@@ -39,7 +26,9 @@
 
 using namespace std;
 
-namespace terminal
+namespace fs = std::filesystem;
+
+namespace vtpty
 {
 
 namespace
@@ -70,12 +59,21 @@ namespace
     class InheritingEnvBlock
     {
       public:
-        using Environment = terminal::Process::Environment;
+        using Environment = vtpty::Process::Environment;
 
         explicit InheritingEnvBlock(Environment const& newValues)
         {
             for (auto const& env: newValues)
             {
+                if (env.first == "TERM")
+                {
+                    // Do not pass TERM to child process, as it might cause problems with some applications
+                    // (e.g. git diff) We are currently only using ConPTY here which does not require TERM to
+                    // be set.
+                    errorLog()("Ignoring TERM environment variable for child process.");
+                    continue;
+                }
+
                 if (auto len = GetEnvironmentVariable(env.first.c_str(), nullptr, 0); len != 0)
                 {
                     vector<char> buf;
@@ -155,7 +153,7 @@ struct Process::Private
 {
     string path;
     vector<string> args;
-    FileSystem::path cwd;
+    fs::path cwd;
     Environment env;
     std::unique_ptr<Pty> pty {};
 
@@ -172,7 +170,7 @@ struct Process::Private
 
 Process::Process(string const& path,
                  vector<string> const& args,
-                 FileSystem::path const& cwd,
+                 fs::path const& cwd,
                  Environment const& env,
                  bool escapeSandbox,
                  std::unique_ptr<Pty> pty):
@@ -213,7 +211,7 @@ void Process::start()
             char buf[1024];
             size_t len = 0;
             if (getenv_s(&len, buf, sizeof(buf), "PATH") == 0)
-                env[name] = fmt::format("{};{}", value, buf);
+                env[name] = std::format("{};{}", value, buf);
         }
     }
     auto const envScope = InheritingEnvBlock { env };
@@ -221,7 +219,7 @@ void Process::start()
     auto const cwd = _d->cwd.generic_string();
     auto const cwdPtr = !cwd.empty() ? cwd.c_str() : nullptr;
 
-    PtyLog()("Creating process for command line: {}", cmd);
+    ptyLog()("Creating process for command line: {}", cmd);
 
     BOOL success = CreateProcess(nullptr,                        // No module name - use Command Line
                                  const_cast<LPSTR>(cmd.c_str()), // Command Line
@@ -255,9 +253,17 @@ void Process::start()
 
     _d->exitWatcher = std::thread([this]() {
         (void) wait();
-        PtyLog()("Process terminated with exit code {}.", checkStatus().value());
+        ptyLog()("Process terminated with exit code {}.", checkStatus().value());
         _d->pty->close();
     });
+}
+
+void Process::waitForClosed()
+{
+    Require(static_cast<ConPty const*>(_d->pty.get()));
+
+    // TODO: Should probably wait for process exit instead here
+    _d->pty->waitForClosed();
 }
 
 Pty& Process::pty() noexcept
@@ -328,12 +334,20 @@ vector<string> Process::loginShell(bool escapeSandbox)
     return { "powershell.exe"s }; // TODO: Find out what the user's default shell is.
 }
 
-FileSystem::path Process::homeDirectory()
+std::string Process::userName()
+{
+    if (char const* p = getenv("USERNAME"); p && *p)
+        return p;
+
+    return "unknown"s;
+}
+
+fs::path Process::homeDirectory()
 {
     if (char const* p = getenv("USERPROFILE"); p && *p)
-        return FileSystem::path(p);
+        return fs::path(p);
 
-    return FileSystem::path("/");
+    return fs::path("/");
 }
 
 string Process::workingDirectory() const
@@ -342,4 +356,4 @@ string Process::workingDirectory() const
     return "."s;
 }
 
-} // namespace terminal
+} // namespace vtpty

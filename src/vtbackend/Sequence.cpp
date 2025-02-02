@@ -11,7 +11,7 @@ using std::accumulate;
 using std::string;
 using std::stringstream;
 
-namespace terminal
+namespace vtbackend
 {
 
 std::string Sequence::raw() const
@@ -61,7 +61,7 @@ string Sequence::text() const
         return sstr.str();
     }
 
-    sstr << fmt::format("{}", _category);
+    sstr << std::format("{}", _category);
 
     if (_leaderSymbol)
         sstr << ' ' << _leaderSymbol;
@@ -81,4 +81,4 @@ string Sequence::text() const
     return sstr.str();
 }
 
-} // namespace terminal
+} // namespace vtbackend

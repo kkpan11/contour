@@ -1,27 +1,15 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Grid.h>
 #include <vtbackend/cell/CellConfig.h>
 #include <vtbackend/primitives.h>
 
-#include <fmt/format.h>
+#include <crispy/BufferObject.h>
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
-#include <iostream>
+#include <format>
 
-using namespace terminal;
+using namespace vtbackend;
 using namespace std::string_literals;
 using namespace std::string_view_literals;
 using std::string;
@@ -34,7 +22,7 @@ namespace
 {
 void logGridText(Grid<Cell> const& grid, string const& headline = "")
 {
-    UNSCOPED_INFO(fmt::format("Grid.dump(hist {}, max hist {}, size {}, ZI {}): {}",
+    UNSCOPED_INFO(std::format("Grid.dump(hist {}, max hist {}, size {}, ZI {}): {}",
                               grid.historyLineCount(),
                               grid.maxHistoryLineCount(),
                               grid.pageSize(),
@@ -44,22 +32,22 @@ void logGridText(Grid<Cell> const& grid, string const& headline = "")
     for (int line = -grid.historyLineCount().as<int>(); line < grid.pageSize().lines.as<int>(); ++line)
     {
         UNSCOPED_INFO(
-            fmt::format("{:>2}: \"{}\" {}\n",
+            std::format("{:>2}: \"{}\" {}\n",
                         line,
                         grid.lineText(LineOffset::cast_from(line - grid.historyLineCount().as<int>())),
-                        (unsigned) grid.lineAt(LineOffset::cast_from(line)).flags()));
+                        grid.lineAt(LineOffset::cast_from(line)).flags()));
     }
 }
 
 [[maybe_unused]] void logGridTextAlways(Grid<Cell> const& grid, string const& headline = "")
 {
-    fmt::print("Grid.dump(hist {}, max hist {}, size {}, ZI {}): {}\n",
-               grid.historyLineCount(),
-               grid.maxHistoryLineCount(),
-               grid.pageSize(),
-               grid.zero_index(),
-               headline);
-    fmt::print("{}\n", dumpGrid(grid));
+    std::cout << std::format("Grid.dump(hist {}, max hist {}, size {}, ZI {}): {}\n",
+                             grid.historyLineCount(),
+                             grid.maxHistoryLineCount(),
+                             grid.pageSize(),
+                             grid.zero_index(),
+                             headline);
+    std::cout << std::format("{}\n", dumpGrid(grid));
 }
 
 Grid<Cell> setupGrid(PageSize pageSize,
@@ -70,7 +58,7 @@ Grid<Cell> setupGrid(PageSize pageSize,
     auto grid = Grid<Cell>(pageSize, reflowOnResize, maxHistoryLineCount);
 
     int cursor = 0;
-    for (string_view line: init)
+    for (string_view const line: init)
     {
         if (cursor == *pageSize.lines)
             grid.scrollUp(LineCount(1));
@@ -80,7 +68,7 @@ Grid<Cell> setupGrid(PageSize pageSize,
         grid.setLineText(LineOffset::cast_from(cursor - 1), line);
 
         logGridText(grid,
-                    fmt::format("setup grid at {}x{}x{}: line {}",
+                    std::format("setup grid at {}x{}x{}: line {}",
                                 pageSize.columns,
                                 pageSize.lines,
                                 maxHistoryLineCount,
@@ -88,7 +76,7 @@ Grid<Cell> setupGrid(PageSize pageSize,
     }
 
     logGridText(grid,
-                fmt::format("setup grid at {}x{}x{}",
+                std::format("setup grid at {}x{}x{}",
                             grid.pageSize().columns,
                             grid.pageSize().lines,
                             grid.maxHistoryLineCount()));
@@ -97,8 +85,10 @@ Grid<Cell> setupGrid(PageSize pageSize,
 
 constexpr Margin fullPageMargin(PageSize pageSize)
 {
-    return Margin { Margin::Vertical { LineOffset(0), pageSize.lines.as<LineOffset>() - 1 },
-                    Margin::Horizontal { ColumnOffset(0), pageSize.columns.as<ColumnOffset>() - 1 } };
+    return Margin { .vertical =
+                        Margin::Vertical { .from = LineOffset(0), .to = pageSize.lines.as<LineOffset>() - 1 },
+                    .horizontal = Margin::Horizontal { .from = ColumnOffset(0),
+                                                       .to = pageSize.columns.as<ColumnOffset>() - 1 } };
 }
 
 [[maybe_unused]] Grid<Cell> setupGrid5x2()
@@ -133,10 +123,10 @@ constexpr Margin fullPageMargin(PageSize pageSize)
 
 Grid<Cell> setupGridForResizeTests2x3xN(LineCount maxHistoryLineCount)
 {
-    auto constexpr reflowOnResize = true;
-    auto constexpr pageSize = PageSize { LineCount(2), ColumnCount(3) };
+    auto constexpr ReflowOnResize = true;
+    auto constexpr PageSize = vtbackend::PageSize { LineCount(2), ColumnCount(3) };
 
-    return setupGrid(pageSize, reflowOnResize, maxHistoryLineCount, { "ABC", "DEF", "GHI", "JKL" });
+    return setupGrid(PageSize, ReflowOnResize, maxHistoryLineCount, { "ABC", "DEF", "GHI", "JKL" });
 }
 
 Grid<Cell> setupGridForResizeTests2x3a3()
@@ -146,6 +136,7 @@ Grid<Cell> setupGridForResizeTests2x3a3()
 
 } // namespace
 
+// NOLINTBEGIN(misc-const-correctness)
 TEST_CASE("Grid.setup", "[grid]")
 {
     auto grid = Grid<Cell>(PageSize { LineCount(2), ColumnCount(5) }, true, LineCount(0));
@@ -205,13 +196,13 @@ TEST_CASE("iteratorAt", "[grid]")
 
 TEST_CASE("LogicalLines.iterator", "[grid]")
 {
-    auto constexpr reflowOnResize = true;
-    auto constexpr maxHistoryLineCount = LineCount(5);
-    auto constexpr pageSize = PageSize { LineCount(2), ColumnCount(3) };
+    auto constexpr ReflowOnResize = true;
+    auto constexpr MaxHistoryLineCount = LineCount(5);
+    auto constexpr PageSize = vtbackend::PageSize { LineCount(2), ColumnCount(3) };
 
-    auto grid = setupGrid(pageSize,
-                          reflowOnResize,
-                          maxHistoryLineCount,
+    auto grid = setupGrid(PageSize,
+                          ReflowOnResize,
+                          MaxHistoryLineCount,
                           {
                               "ABC", // -4:
                               "DEF", // -3:
@@ -226,7 +217,7 @@ TEST_CASE("LogicalLines.iterator", "[grid]")
     grid.lineAt(LineOffset(1)).setWrapped(true);
     logGridText(grid, "After having set wrapped-flag.");
 
-    LogicalLines logicalLines = grid.logicalLines();
+    auto const logicalLines = grid.logicalLines();
     auto lineIt = logicalLines.begin();
 
     // ABC
@@ -275,13 +266,13 @@ TEST_CASE("LogicalLines.iterator", "[grid]")
 
 TEST_CASE("LogicalLines.reverse_iterator", "[grid]")
 {
-    auto constexpr reflowOnResize = true;
-    auto constexpr maxHistoryLineCount = LineCount(5);
-    auto constexpr pageSize = PageSize { LineCount(2), ColumnCount(3) };
+    auto constexpr ReflowOnResize = true;
+    auto constexpr MaxHistoryLineCount = LineCount(5);
+    auto constexpr PageSize = vtbackend::PageSize { LineCount(2), ColumnCount(3) };
 
-    auto grid = setupGrid(pageSize,
-                          reflowOnResize,
-                          maxHistoryLineCount,
+    auto grid = setupGrid(PageSize,
+                          ReflowOnResize,
+                          MaxHistoryLineCount,
                           {
                               "ABC", // -4:
                               "DEF", // -3:
@@ -345,9 +336,10 @@ TEST_CASE("resize_lines_nr2_with_scrollback_moving_fully_into_page", "[grid]")
     CHECK(grid.maxHistoryLineCount() == LineCount(3));
     CHECK(grid.historyLineCount() == LineCount(2));
 
-    auto const curCursorPos = CellLocation { grid.pageSize().lines.as<LineOffset>() - 1, ColumnOffset(1) };
+    auto const curCursorPos =
+        CellLocation { .line = grid.pageSize().lines.as<LineOffset>() - 1, .column = ColumnOffset(1) };
     auto const newPageSize = PageSize { LineCount(4), ColumnCount(3) };
-    auto const newCursorPos0 = CellLocation { curCursorPos.line + 2, curCursorPos.column };
+    auto const newCursorPos0 = CellLocation { .line = curCursorPos.line + 2, .column = curCursorPos.column };
     CellLocation newCursorPos = grid.resize(newPageSize, curCursorPos, false);
     CHECK(newCursorPos.line == newCursorPos0.line);
     CHECK(newCursorPos.column == newCursorPos0.column);
@@ -371,7 +363,7 @@ TEST_CASE("resize_lines_nr3_with_scrollback_moving_into_page_overflow", "[grid]"
     REQUIRE(grid.pageSize().columns == ColumnCount(3));
     REQUIRE(grid.pageSize().lines == LineCount(2));
 
-    auto const curCursorPos = CellLocation { LineOffset(1), ColumnOffset(1) };
+    auto const curCursorPos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
     auto const newPageSize = PageSize { LineCount(5), ColumnCount(3) };
     logGridText(grid, "BEFORE");
     CellLocation newCursorPos = grid.resize(newPageSize, curCursorPos, false);
@@ -393,7 +385,7 @@ TEST_CASE("resize_grow_lines_with_history_cursor_no_bottom", "[grid]")
     CHECK(grid.maxHistoryLineCount() == LineCount(3));
     CHECK(grid.historyLineCount() == LineCount(2));
 
-    auto const curCursorPos = CellLocation { LineOffset(0), ColumnOffset(1) };
+    auto const curCursorPos = CellLocation { .line = LineOffset(0), .column = ColumnOffset(1) };
     logGridText(grid, "before resize");
     CellLocation newCursorPos = grid.resize(PageSize { LineCount(3), ColumnCount(3) }, curCursorPos, false);
     logGridText(grid, "after resize");
@@ -421,9 +413,9 @@ TEST_CASE("resize_shrink_lines_with_history", "[grid]")
 
     // shrink by one line (=> move page one line up into scrollback)
     auto const newPageSize = PageSize { LineCount(1), ColumnCount(3) };
-    auto const curCursorPos = CellLocation { LineOffset(1), ColumnOffset(1) };
+    auto const curCursorPos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
     logGridText(grid, "BEFORE");
-    CellLocation newCursorPos = grid.resize(newPageSize, curCursorPos, false);
+    CellLocation const newCursorPos = grid.resize(newPageSize, curCursorPos, false);
     logGridText(grid, "AFTER");
     CHECK(grid.pageSize().columns == ColumnCount(3));
     CHECK(grid.pageSize().lines == LineCount(1));
@@ -452,7 +444,7 @@ TEST_CASE("resize_shrink_columns_with_reflow_and_unwrappable", "[grid]")
 
     auto grid = setupGridForResizeTests2x3xN(LineCount(5));
     auto const newPageSize = PageSize { LineCount(2), ColumnCount(2) };
-    auto const curCursorPos = CellLocation { LineOffset(1), ColumnOffset(1) };
+    auto const curCursorPos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
     grid.lineAt(LineOffset(0)).setWrappable(false);
     logGridText(grid, "BEFORE");
     auto const newCursorPos = grid.resize(newPageSize, curCursorPos, false);
@@ -471,13 +463,13 @@ TEST_CASE("resize_shrink_columns_with_reflow_and_unwrappable", "[grid]")
     CHECK(grid.lineText(LineOffset(0)) == "JK");
     CHECK(grid.lineText(LineOffset(1)) == "L ");
 
-    CHECK(grid.lineAt(LineOffset(-5)).flags() == LineFlags::Wrappable);
-    CHECK(grid.lineAt(LineOffset(-4)).flags() == (LineFlags::Wrappable | LineFlags::Wrapped));
-    CHECK(grid.lineAt(LineOffset(-3)).flags() == LineFlags::Wrappable);
-    CHECK(grid.lineAt(LineOffset(-2)).flags() == (LineFlags::Wrappable | LineFlags::Wrapped));
-    CHECK(grid.lineAt(LineOffset(-1)).flags() == LineFlags::None);
-    CHECK(grid.lineAt(LineOffset(0)).flags() == LineFlags::Wrappable);
-    CHECK(grid.lineAt(LineOffset(1)).flags() == (LineFlags::Wrappable | LineFlags::Wrapped));
+    CHECK(grid.lineAt(LineOffset(-5)).flags() == LineFlag::Wrappable);
+    CHECK(grid.lineAt(LineOffset(-4)).flags() == LineFlags({ LineFlag::Wrappable, LineFlag::Wrapped }));
+    CHECK(grid.lineAt(LineOffset(-3)).flags() == LineFlag::Wrappable);
+    CHECK(grid.lineAt(LineOffset(-2)).flags() == LineFlags({ LineFlag::Wrappable, LineFlag::Wrapped }));
+    CHECK(grid.lineAt(LineOffset(-1)).flags() == LineFlag::None);
+    CHECK(grid.lineAt(LineOffset(0)).flags() == LineFlag::Wrappable);
+    CHECK(grid.lineAt(LineOffset(1)).flags() == LineFlags({ LineFlag::Wrappable, LineFlag::Wrapped }));
 }
 
 TEST_CASE("resize_shrink_columns_with_reflow_grow_lines_and_unwrappable", "[grid]")
@@ -495,7 +487,7 @@ TEST_CASE("resize_shrink_columns_with_reflow_grow_lines_and_unwrappable", "[grid
     // JK
     // L
     auto grid = setupGridForResizeTests2x3xN(LineCount(5));
-    auto const curCursorPos = CellLocation { LineOffset(1), ColumnOffset(1) };
+    auto const curCursorPos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
     grid.lineAt(LineOffset(0)).setWrappable(false);
     // logGridText(grid, "BEFORE");
     auto const newCursorPos = grid.resize(PageSize { LineCount(4), ColumnCount(2) }, curCursorPos, false);
@@ -510,13 +502,13 @@ TEST_CASE("resize_shrink_columns_with_reflow_grow_lines_and_unwrappable", "[grid
     CHECK(grid.lineText(LineOffset(2)) == "JK");
     CHECK(grid.lineText(LineOffset(3)) == "L ");
 
-    CHECK(grid.lineAt(LineOffset(-3)).flags() == LineFlags::Wrappable);
-    CHECK(grid.lineAt(LineOffset(-2)).flags() == (LineFlags::Wrappable | LineFlags::Wrapped));
-    CHECK(grid.lineAt(LineOffset(-1)).flags() == LineFlags::Wrappable);
-    CHECK(grid.lineAt(LineOffset(0)).flags() == (LineFlags::Wrappable | LineFlags::Wrapped));
-    CHECK(grid.lineAt(LineOffset(1)).flags() == LineFlags::None);
-    CHECK(grid.lineAt(LineOffset(2)).flags() == LineFlags::Wrappable);
-    CHECK(grid.lineAt(LineOffset(3)).flags() == (LineFlags::Wrappable | LineFlags::Wrapped));
+    CHECK(grid.lineAt(LineOffset(-3)).flags() == LineFlag::Wrappable);
+    CHECK(grid.lineAt(LineOffset(-2)).flags() == LineFlags({ LineFlag::Wrappable, LineFlag::Wrapped }));
+    CHECK(grid.lineAt(LineOffset(-1)).flags() == LineFlag::Wrappable);
+    CHECK(grid.lineAt(LineOffset(0)).flags() == LineFlags({ LineFlag::Wrappable, LineFlag::Wrapped }));
+    CHECK(grid.lineAt(LineOffset(1)).flags() == LineFlag::None);
+    CHECK(grid.lineAt(LineOffset(2)).flags() == LineFlag::Wrappable);
+    CHECK(grid.lineAt(LineOffset(3)).flags() == LineFlags({ LineFlag::Wrappable, LineFlag::Wrapped }));
 }
 // }}}
 
@@ -529,7 +521,8 @@ TEST_CASE("resize_reflow_shrink", "[grid]")
     // Shrink slowly from 5x2 to 4x2 to 3x2 to 2x2.
 
     // 4x2
-    (void) grid.resize(PageSize { LineCount(2), ColumnCount(4) }, CellLocation { {}, {} }, false);
+    (void) grid.resize(
+        PageSize { LineCount(2), ColumnCount(4) }, CellLocation { .line = {}, .column = {} }, false);
     logGridText(grid, "after resize 4x2");
 
     CHECK(*grid.historyLineCount() == 2);
@@ -540,7 +533,7 @@ TEST_CASE("resize_reflow_shrink", "[grid]")
     CHECK(grid.lineText(LineOffset(0)) == "abcd");
     CHECK(grid.lineText(LineOffset(1)) == "e   ");
 
-    // fmt::print("Starting logicalLines test\n");
+    // std::cout << std::format("Starting logicalLines test\n");
     auto ll = grid.logicalLines();
     auto li = ll.begin();
     auto le = ll.end();
@@ -551,8 +544,9 @@ TEST_CASE("resize_reflow_shrink", "[grid]")
     CHECK(li == le);
 
     // 3x2
-    fmt::print("Starting resize to 3x2\n");
-    (void) grid.resize(PageSize { LineCount(2), ColumnCount(3) }, CellLocation { {}, {} }, false);
+    std::cout << std::format("Starting resize to 3x2\n");
+    (void) grid.resize(
+        PageSize { LineCount(2), ColumnCount(3) }, CellLocation { .line = {}, .column = {} }, false);
     logGridText(grid, "after resize 3x2");
 
     CHECK(*grid.historyLineCount() == 2);
@@ -563,7 +557,8 @@ TEST_CASE("resize_reflow_shrink", "[grid]")
     CHECK(grid.lineText(LineOffset(1)) == "de ");
 
     // 2x2
-    (void) grid.resize(PageSize { LineCount(2), ColumnCount(2) }, CellLocation { {}, {} }, false);
+    (void) grid.resize(
+        PageSize { LineCount(2), ColumnCount(2) }, CellLocation { .line = {}, .column = {} }, false);
     logGridText(grid, "after resize 2x2");
 
     CHECK(grid.pageSize() == PageSize { LineCount(2), ColumnCount(2) });
@@ -582,7 +577,8 @@ TEST_CASE("Grid.reflow", "[grid]")
 
     SECTION("resize 4x2")
     {
-        (void) grid.resize(PageSize { LineCount(2), ColumnCount(4) }, CellLocation { {}, {} }, false);
+        (void) grid.resize(
+            PageSize { LineCount(2), ColumnCount(4) }, CellLocation { .line = {}, .column = {} }, false);
         logGridText(grid, "after resize");
 
         CHECK(grid.historyLineCount() == LineCount(2));
@@ -852,22 +848,22 @@ TEST_CASE("Grid.reflow.tripple", "[grid]")
 
 TEST_CASE("Grid infinite", "[grid]")
 {
-    auto grid_finite = Grid<Cell>(PageSize { LineCount(2), ColumnCount(8) }, true, LineCount(0));
-    grid_finite.setLineText(LineOffset { 0 }, "ABCDEFGH"sv);
-    grid_finite.setLineText(LineOffset { 1 }, "abcdefgh"sv);
-    grid_finite.scrollUp(LineCount { 1 });
-    REQUIRE(grid_finite.lineText(LineOffset(0)) == "abcdefgh");
-    REQUIRE(grid_finite.lineText(LineOffset(-1)) == std::string(8, ' '));
+    auto gridFinite = Grid<Cell>(PageSize { LineCount(2), ColumnCount(8) }, true, LineCount(0));
+    gridFinite.setLineText(LineOffset { 0 }, "ABCDEFGH"sv);
+    gridFinite.setLineText(LineOffset { 1 }, "abcdefgh"sv);
+    gridFinite.scrollUp(LineCount { 1 });
+    REQUIRE(gridFinite.lineText(LineOffset(0)) == "abcdefgh");
+    REQUIRE(gridFinite.lineText(LineOffset(-1)) == std::string(8, ' '));
 
-    auto grid_infinite = Grid<Cell>(PageSize { LineCount(2), ColumnCount(8) }, true, Infinite());
-    grid_infinite.setLineText(LineOffset { 0 }, "ABCDEFGH"sv);
-    grid_infinite.setLineText(LineOffset { 1 }, "abcdefgh"sv);
-    grid_infinite.scrollUp(LineCount { 1 });
-    REQUIRE(grid_infinite.lineText(LineOffset(0)) == "abcdefgh");
-    REQUIRE(grid_infinite.lineText(LineOffset(-1)) == "ABCDEFGH");
-    grid_infinite.scrollUp(LineCount { 97 });
-    REQUIRE(grid_infinite.lineText(LineOffset(-97)) == "abcdefgh");
-    REQUIRE(grid_infinite.lineText(LineOffset(-98)) == "ABCDEFGH");
+    auto gridInfinite = Grid<Cell>(PageSize { LineCount(2), ColumnCount(8) }, true, Infinite());
+    gridInfinite.setLineText(LineOffset { 0 }, "ABCDEFGH"sv);
+    gridInfinite.setLineText(LineOffset { 1 }, "abcdefgh"sv);
+    gridInfinite.scrollUp(LineCount { 1 });
+    REQUIRE(gridInfinite.lineText(LineOffset(0)) == "abcdefgh");
+    REQUIRE(gridInfinite.lineText(LineOffset(-1)) == "ABCDEFGH");
+    gridInfinite.scrollUp(LineCount { 97 });
+    REQUIRE(gridInfinite.lineText(LineOffset(-97)) == "abcdefgh");
+    REQUIRE(gridInfinite.lineText(LineOffset(-98)) == "ABCDEFGH");
 }
 
 TEST_CASE("Grid resize with wrap", "[grid]")
@@ -881,7 +877,7 @@ TEST_CASE("Grid resize with wrap", "[grid]")
     REQUIRE(grid.lineText(LineOffset(1)) == "ABC");
     REQUIRE(grid.lineText(LineOffset(2)) == "DE ");
     (void) grid.resize(PageSize { LineCount(3), ColumnCount(5) }, CellLocation {}, false);
-    REQUIRE(unbox<int>(grid.historyLineCount()) == 0);
+    REQUIRE(unbox(grid.historyLineCount()) == 0);
     REQUIRE(grid.lineText(LineOffset(0)) == "1    ");
     REQUIRE(grid.lineText(LineOffset(1)) == "2    ");
     REQUIRE(grid.lineText(LineOffset(2)) == "ABCDE");
@@ -892,14 +888,19 @@ TEST_CASE("Grid resize", "[grid]")
     auto width = ColumnCount(6);
     auto grid = Grid<Cell>(PageSize { LineCount(2), width }, true, LineCount(0));
     auto text = "abcd"sv;
-    auto pool = crispy::BufferObjectPool<char>(32);
+    auto pool = crispy::buffer_object_pool<char>(32);
     auto bufferObject = pool.allocateBufferObject();
     bufferObject->writeAtEnd(text);
     auto const bufferFragment = bufferObject->ref(0, 4);
     auto const sgr = GraphicsAttributes {};
-    auto const trivial = TrivialLineBuffer { width, sgr, sgr, HyperlinkId {}, width, bufferFragment };
-    auto line_trivial = Line<Cell>(LineFlags::None, trivial);
-    grid.lineAt(LineOffset(0)) = line_trivial;
+    auto const trivial = TrivialLineBuffer { .displayWidth = width,
+                                             .textAttributes = sgr,
+                                             .fillAttributes = sgr,
+                                             .hyperlink = HyperlinkId {},
+                                             .usedColumns = width,
+                                             .text = bufferFragment };
+    auto lineTrivial = Line<Cell>(LineFlag::None, trivial);
+    grid.lineAt(LineOffset(0)) = lineTrivial;
     REQUIRE(grid.lineAt(LineOffset(0)).isTrivialBuffer());
     REQUIRE(grid.lineAt(LineOffset(1)).isTrivialBuffer());
     (void) grid.resize(PageSize { LineCount(2), width + ColumnCount(1) }, CellLocation {}, false);
@@ -910,4 +911,48 @@ TEST_CASE("Grid resize", "[grid]")
     REQUIRE(grid.lineAt(LineOffset(1)).isTrivialBuffer());
 }
 
+TEST_CASE("Grid resize with wrap and spaces", "[grid]")
+{
+    auto width = ColumnCount(7);
+    auto grid = Grid<Cell>(PageSize { LineCount(3), width }, true, LineCount(0));
+
+    auto text = "a a a a"sv;
+    auto pool = crispy::buffer_object_pool<char>(unbox(width) * 8);
+    auto bufferObject = pool.allocateBufferObject();
+    bufferObject->writeAtEnd(text);
+    auto const bufferFragment = bufferObject->ref(0, unbox(width));
+    auto const sgr = GraphicsAttributes {};
+    auto const trivial = TrivialLineBuffer { .displayWidth = width,
+                                             .textAttributes = sgr,
+                                             .fillAttributes = sgr,
+                                             .hyperlink = HyperlinkId {},
+                                             .usedColumns = width,
+                                             .text = bufferFragment };
+    auto lineTrivial = Line<Cell>(LineFlag::None, trivial);
+    grid.lineAt(LineOffset(0)) = lineTrivial;
+
+    (void) grid.resize(PageSize { LineCount(3), ColumnCount(6) }, CellLocation {}, false);
+    REQUIRE(grid.lineText(LineOffset(-1)) == "a a a ");
+    REQUIRE(grid.lineText(LineOffset(0)) == "a     ");
+    REQUIRE(grid.lineText(LineOffset(1)) == "      ");
+    (void) grid.resize(PageSize { LineCount(3), ColumnCount(7) }, CellLocation {}, false);
+    REQUIRE(grid.lineText(LineOffset(0)) == "a a a a");
+    (void) grid.resize(PageSize { LineCount(3), ColumnCount(5) }, CellLocation {}, false);
+    REQUIRE(grid.lineText(LineOffset(-1)) == "a a a");
+    REQUIRE(grid.lineText(LineOffset(0)) == " a   ");
+    REQUIRE(grid.lineText(LineOffset(1)) == "     ");
+    (void) grid.resize(PageSize { LineCount(3), ColumnCount(4) }, CellLocation {}, false);
+    REQUIRE(grid.lineText(LineOffset(-1)) == "a a ");
+    REQUIRE(grid.lineText(LineOffset(0)) == "a a ");
+    REQUIRE(grid.lineText(LineOffset(1)) == "    ");
+    (void) grid.resize(PageSize { LineCount(3), ColumnCount(3) }, CellLocation {}, false);
+    REQUIRE(grid.lineText(LineOffset(-2)) == "a a");
+    REQUIRE(grid.lineText(LineOffset(-1)) == " a ");
+    REQUIRE(grid.lineText(LineOffset(0)) == "a  ");
+    REQUIRE(grid.lineText(LineOffset(1)) == "   ");
+    (void) grid.resize(PageSize { LineCount(3), ColumnCount(7) }, CellLocation {}, false);
+    REQUIRE(grid.lineText(LineOffset(0)) == "a a a a");
+}
+
 // }}}
+// NOLINTEND(misc-const-correctness)

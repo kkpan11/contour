@@ -1,23 +1,11 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/assert.h>
 
-#include <fmt/format.h>
-
 #include <QtCore/QtGlobal>
+
+#include <format>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     #include <QtGui/QSurfaceFormat>
@@ -35,9 +23,8 @@
 namespace contour::display
 {
 
-enum class ShaderClass
+enum class ShaderClass : uint8_t
 {
-    BackgroundImage,
     Background,
     Text
 };
@@ -57,11 +44,10 @@ struct ShaderConfig
 bool useOpenGLES() noexcept;
 QSurfaceFormat createSurfaceFormat();
 
-inline std::string to_string(ShaderClass _shaderClass)
+inline std::string to_string(ShaderClass shaderClass)
 {
-    switch (_shaderClass)
+    switch (shaderClass)
     {
-        case ShaderClass::BackgroundImage: return "background_image";
         case ShaderClass::Background: return "background";
         case ShaderClass::Text: return "text";
     }
@@ -71,6 +57,6 @@ inline std::string to_string(ShaderClass _shaderClass)
 
 ShaderConfig builtinShaderConfig(ShaderClass shaderClass);
 
-std::unique_ptr<QOpenGLShaderProgram> createShader(ShaderConfig const& _shaderConfig);
+std::unique_ptr<QOpenGLShaderProgram> createShader(ShaderConfig const& shaderConfig);
 
 } // namespace contour::display

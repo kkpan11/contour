@@ -1,16 +1,4 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/RenderBuffer.h>
@@ -20,7 +8,7 @@
 
 #include <memory>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 class RenderTarget;
@@ -33,7 +21,7 @@ class BackgroundRenderer: public Renderable
     /// @param gridMetrics
     /// @param defaultColor
     /// @param renderTarget
-    BackgroundRenderer(GridMetrics const& gridMetrics, RGBColor const& defaultColor);
+    BackgroundRenderer(GridMetrics const& gridMetrics, vtbackend::RGBColor const& defaultColor);
 
     void setRenderTarget(RenderTarget& renderTarget, DirectMappingAllocator& directMappingAllocator) override;
 
@@ -43,16 +31,16 @@ class BackgroundRenderer: public Renderable
     // because there is no need to detect bg/fg color more than once per grid cell!
 
     /// Queues up a render with given background
-    void renderCell(RenderCell const& cell);
+    void renderCell(vtbackend::RenderCell const& cell);
 
-    void renderLine(RenderLine const& line);
+    void renderLine(vtbackend::RenderLine const& line);
 
     void inspect(std::ostream& output) const override;
 
   private:
     // private data
-    RGBColor const& _defaultColor;
+    vtbackend::RGBColor const& _defaultColor;
     uint8_t _opacity = 255;
 };
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

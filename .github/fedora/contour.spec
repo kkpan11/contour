@@ -16,12 +16,11 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cmake
 BuildRequires:  extra-cmake-modules
-# Don't use system-dep of fmt-devel for now as we need a newer one
-# BuildRequires:  fmt-devel
 BuildRequires:  fontconfig-devel
 BuildRequires:  freetype-devel
 BuildRequires:  gcc-c++
 BuildRequires:  harfbuzz-devel
+BuildRequires:  libssh2-devel
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf
 BuildRequires:  qt6-qtbase-devel
@@ -31,6 +30,7 @@ BuildRequires:  qt6-qtmultimedia-devel
 
 Requires:       fontconfig
 Requires:       freetype
+Requires:       libssh2
 Requires:       harfbuzz
 Requires:       qt6-qtbase
 Requires:       qt6-qtbase-gui
@@ -53,6 +53,7 @@ cmake . \
     -DCONTOUR_QT_VERSION=6 \
     -DPEDANTIC_COMPILER=ON \
     -DPEDANTIC_COMPILER_WERROR=ON \
+    -DCONTOUR_TESTING=ON \
     -B build \
     -GNinja
 cd build
@@ -75,7 +76,7 @@ cd build
 
 %files
 %license LICENSE.txt
-%doc README.md CONTRIBUTING.md TODO.md
+%doc README.md docs/CONTRIBUTING.md TODO.md
 %{_bindir}/*
 %{_datadir}/*
 

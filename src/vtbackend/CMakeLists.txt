@@ -1,13 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
-#project(libterminal VERSION "0.0.0" LANGUAGES CXX)
-
 find_package(Threads)
-include(FilesystemResolver)
 
-option(LIBTERMINAL_TESTING "Enables building of unittests for libterminal [default: ON]" ON)
+option(LIBTERMINAL_TESTING "Enables building of unittests for libterminal [default: ON]" ${CONTOUR_TESTING})
 option(LIBTERMINAL_LOG_TRACE "Enables VT sequence tracing. [default: ON]" ON)
-option(LIBTERMINAL_CACHE_CURRENT_LINE_POINTER "Enables caching the pointer to the current line, which should improve performance. [default: OFF]" OFF)
 
 # This is an optimization feature that hopefully improves performance when enabled.
 # But it's currently disabled by default as I am not fully satisfied with it yet.
@@ -40,14 +36,16 @@ set(vtbackend_HEADERS
     Screen.h
     Selector.h
     Sequence.h
-    Sequencer.h
+    SequenceBuilder.h
     SixelParser.h
+    StatusLineBuilder.h
     Terminal.h
     VTType.h
     VTWriter.h
     Viewport.h
     ViInputHandler.h
     ViCommands.h
+    JumpHistory.h
     primitives.h
 )
 
@@ -70,15 +68,15 @@ set(vtbackend_SOURCES
     Screen.cpp
     Selector.cpp
     Sequence.cpp
-    Sequencer.cpp
     SixelParser.cpp
+    StatusLineBuilder.cpp
     Terminal.cpp
-    TerminalState.cpp
     VTType.cpp
     VTWriter.cpp
     Viewport.cpp
     ViInputHandler.cpp
     ViCommands.cpp
+    JumpHistory.cpp
     primitives.cpp
 )
 
@@ -97,22 +95,18 @@ target_include_directories(vtbackend PUBLIC
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/include>
 )
 
-target_link_libraries(vtbackend PUBLIC 
+target_link_libraries(vtbackend PUBLIC
     Microsoft.GSL::GSL
-    Threads::Threads 
-    crispy::core 
-    fmt::fmt-header-only
-    range-v3::range-v3 
-    ${LIBUNICODE_LIBS}  
-    vtparser 
-    vtpty 
+    Threads::Threads
+    crispy::core
+    range-v3::range-v3
+    unicode::unicode
+    vtparser
+    vtpty
 )
 
 if(LIBTERMINAL_LOG_TRACE)
     target_compile_definitions(vtbackend PUBLIC LIBTERMINAL_LOG_TRACE=1)
-endif()
-if(LIBTERMINAL_CACHE_CURRENT_LINE_POINTER)
-    target_compile_definitions(vtbackend PUBLIC LIBTERMINAL_CACHE_CURRENT_LINE_POINTER=1)
 endif()
 if(CONTOUR_PERF_STATS)
     target_compile_definitions(vtbackend PUBLIC CONTOUR_PERF_STATS=1)
@@ -126,11 +120,10 @@ endif()
 if(LIBTERMINAL_TESTING)
     enable_testing()
     add_executable(vtbackend_test
-        test_main.cpp
         Capabilities_test.cpp
         Color_test.cpp
         InputGenerator_test.cpp
-		Selector_test.cpp
+        Selector_test.cpp
         Functions_test.cpp
         Grid_test.cpp
         Line_test.cpp
@@ -140,7 +133,7 @@ if(LIBTERMINAL_TESTING)
         SixelParser_test.cpp
         ViCommands_test.cpp
     )
-    target_link_libraries(vtbackend_test fmt::fmt-header-only Catch2::Catch2 vtbackend)
+    target_link_libraries(vtbackend_test Catch2::Catch2WithMain vtbackend)
     add_test(vtbackend_test ./vtbackend_test)
 
     if (LIBTERMINAL_BUILD_BENCH_HEADLESS)
@@ -152,12 +145,14 @@ if(LIBTERMINAL_TESTING)
             CONTOUR_VERSION_STRING="${CONTOUR_VERSION_STRING}"
             CONTOUR_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         )
-        target_link_libraries(bench-headless fmt::fmt-header-only vtbackend termbench)
+
+        target_link_libraries(bench-headless
+            termbench::termbench
+            vtbackend
+        )
 
         if(CONTOUR_INSTALL_TOOLS)
-            if(WIN32)
-                install(TARGETS bench-headless DESTINATION bin)
-            elseif(APPLE)
+            if(APPLE)
                 # See: https://stackoverflow.com/questions/35612687/cmake-macos-x-bundle-with-bundleutiliies-for-qt-application/48035834#48035834
                 set(APP_NAME contour)
                 set(App_Contents "${APP_NAME}.app/Contents")
@@ -176,5 +171,15 @@ if(LIBTERMINAL_TESTING)
     endif()
 endif()
 
-message(STATUS "[libterminal] Compile unit tests: ${LIBTERMINAL_TESTING}")
-message(STATUS "[libterminal] Enable VT sequence tracing: ${LIBTERMINAL_LOG_TRACE}")
+option(VTBACKEND_DOC_TOOL "Tool to generate documentation for vtbackend [default: OFF]" OFF)
+if(VTBACKEND_DOC_TOOL)
+    add_executable(vtbackend-doc-tool doc-tool.cpp)
+    target_link_libraries(vtbackend-doc-tool vtbackend)
+    # install(TARGETS vtbackend-doc-tool DESTINATION bin)
+endif()
+
+message(STATUS "[vtbackend] Compile unit tests: ${LIBTERMINAL_TESTING}")
+message(STATUS "[vtbackend] Enable VT sequence tracing: ${LIBTERMINAL_LOG_TRACE}")
+message(STATUS "[vtbackend] Enable passive render buffer update: ${LIBTERMINAL_PASSIVE_RENDER_BUFFER_UPDATE}")
+message(STATUS "[vtbackend] Build bench-headless: ${LIBTERMINAL_BUILD_BENCH_HEADLESS}")
+message(STATUS "[vtbackend] Build documentation tool: ${VTBACKEND_DOC_TOOL}")

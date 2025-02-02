@@ -1,16 +1,4 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/StrongHash.h>
@@ -35,7 +23,7 @@ namespace crispy
 namespace detail
 {
     template <typename Key, typename Value>
-    struct LRUCacheEntry
+    struct lru_cache_entry
     {
         Key key {};
         Value value {};
@@ -51,16 +39,16 @@ namespace detail
 //     memory region instead of two.
 //     Or even overloading operator new of StrongLRUCache
 //     and put the dynamic data at the end of the primary data.
-template <typename Key, typename Value, typename Hasher = StrongHasher<Key>>
-class StrongLRUCache
+template <typename Key, typename Value, typename Hasher = strong_hasher<Key>>
+class strong_lru_cache
 {
   public:
-    StrongLRUCache(StrongHashtableSize hashCount, LRUCapacity entryCount, std::string name = "");
-    StrongLRUCache(StrongLRUCache&&) noexcept = default;
-    StrongLRUCache(StrongLRUCache const&) noexcept = delete;
-    StrongLRUCache& operator=(StrongLRUCache&&) noexcept = default;
-    StrongLRUCache& operator=(StrongLRUCache const&) noexcept = delete;
-    ~StrongLRUCache() = default;
+    strong_lru_cache(strong_hashtable_size hashCount, lru_capacity entryCount, std::string name = "");
+    strong_lru_cache(strong_lru_cache&&) noexcept = default;
+    strong_lru_cache(strong_lru_cache const&) noexcept = delete;
+    strong_lru_cache& operator=(strong_lru_cache&&) noexcept = default;
+    strong_lru_cache& operator=(strong_lru_cache const&) noexcept = delete;
+    ~strong_lru_cache() = default;
 
     /// Returns the actual number of entries currently hold in this cache.
     [[nodiscard]] size_t size() const noexcept;
@@ -70,12 +58,12 @@ class StrongLRUCache
 
     /// Returns gathered stats and clears the local stats state to start
     /// counting from zero again.
-    LRUHashtableStats fetchAndClearStats() noexcept;
+    lru_hashtable_stats fetchAndClearStats() noexcept;
 
     /// Clears all entries from the cache.
     void clear();
 
-    // Delets the key and its associated value from the LRU cache
+    // Deletes the key and its associated value from the LRU cache
     void remove(Key key);
 
     /// Touches a given key, putting it to the front of the LRU chain.
@@ -101,7 +89,7 @@ class StrongLRUCache
     /// if it wasn't in the cache just yet.
     [[nodiscard]] Value& operator[](Key key) noexcept;
 
-    /// Assignes the given value to the given key.
+    /// Assigns the given value to the given key.
     /// If the key was not found, it is being created, otherwise the value will
     /// be re-assigned with the new value.
     Value& emplace(Key key, Value value) noexcept;
@@ -121,130 +109,127 @@ class StrongLRUCache
     void inspect(std::ostream& output) const;
 
   private:
-    using Entry = detail::LRUCacheEntry<Key, Value>;
-    using Hashtable = StrongLRUHashtable<Entry>;
-    using HashtablePtr = typename Hashtable::Ptr;
+    using entry = detail::lru_cache_entry<Key, Value>;
+    using hashtable = strong_lru_hashtable<entry>;
+    using hashtable_ptr = typename hashtable::ptr;
 
-    HashtablePtr _hashtable;
+    hashtable_ptr _hashtable;
 };
 
 // {{{ implementation
 
 template <typename Key, typename Value, typename Hasher>
-StrongLRUCache<Key, Value, Hasher>::StrongLRUCache(StrongHashtableSize hashCount,
-                                                   LRUCapacity entryCount,
-                                                   std::string name):
-    _hashtable { Hashtable::create(hashCount, entryCount, std::move(name)) }
+strong_lru_cache<Key, Value, Hasher>::strong_lru_cache(strong_hashtable_size hashCount,
+                                                       lru_capacity entryCount,
+                                                       std::string name):
+    _hashtable { hashtable::create(hashCount, entryCount, std::move(name)) }
 {
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline size_t StrongLRUCache<Key, Value, Hasher>::size() const noexcept
+inline size_t strong_lru_cache<Key, Value, Hasher>::size() const noexcept
 {
     return _hashtable->size();
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline size_t StrongLRUCache<Key, Value, Hasher>::capacity() const noexcept
+inline size_t strong_lru_cache<Key, Value, Hasher>::capacity() const noexcept
 {
     return _hashtable->capacity();
 }
 
 template <typename Key, typename Value, typename Hasher>
-LRUHashtableStats StrongLRUCache<Key, Value, Hasher>::fetchAndClearStats() noexcept
+lru_hashtable_stats strong_lru_cache<Key, Value, Hasher>::fetchAndClearStats() noexcept
 {
     return _hashtable->fetchAndClearStats();
 }
 
 template <typename Key, typename Value, typename Hasher>
-void StrongLRUCache<Key, Value, Hasher>::clear()
+void strong_lru_cache<Key, Value, Hasher>::clear()
 {
     _hashtable->clear();
 }
 
 template <typename Key, typename Value, typename Hasher>
-void StrongLRUCache<Key, Value, Hasher>::remove(Key key)
+void strong_lru_cache<Key, Value, Hasher>::remove(Key key)
 {
     _hashtable->remove(Hasher {}(key));
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline void StrongLRUCache<Key, Value, Hasher>::touch(Key key) noexcept
+inline void strong_lru_cache<Key, Value, Hasher>::touch(Key key) noexcept
 {
     _hashtable->touch(Hasher {}(key));
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline bool StrongLRUCache<Key, Value, Hasher>::contains(Key key) const noexcept
+inline bool strong_lru_cache<Key, Value, Hasher>::contains(Key key) const noexcept
 {
     return _hashtable->contains(Hasher {}(key));
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline Value* StrongLRUCache<Key, Value, Hasher>::try_get(Key key) noexcept
+inline Value* strong_lru_cache<Key, Value, Hasher>::try_get(Key key) noexcept
 {
-    if (Entry* e = _hashtable->try_get(Hasher {}(key)))
+    if (entry* e = _hashtable->try_get(Hasher {}(key)))
         return &e->value;
     return nullptr;
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline Value const* StrongLRUCache<Key, Value, Hasher>::try_get(Key key) const noexcept
+inline Value const* strong_lru_cache<Key, Value, Hasher>::try_get(Key key) const noexcept
 {
-    if (Entry const* e = _hashtable->try_get(Hasher {}(key)))
+    if (entry const* e = _hashtable->try_get(Hasher {}(key)))
         return &e->value;
     return nullptr;
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline Value& StrongLRUCache<Key, Value, Hasher>::at(Key key)
+inline Value& strong_lru_cache<Key, Value, Hasher>::at(Key key)
 {
     return _hashtable->at(Hasher {}(key)).value;
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline Value& StrongLRUCache<Key, Value, Hasher>::operator[](Key key) noexcept
+inline Value& strong_lru_cache<Key, Value, Hasher>::operator[](Key key) noexcept
 {
-    return _hashtable->get_or_emplace(Hasher {}(key), [&](auto) { return Entry { key, Value {} }; }).value;
+    return _hashtable->get_or_emplace(Hasher {}(key), [&](auto) { return entry { key, Value {} }; }).value;
 }
 
 template <typename Key, typename Value, typename Hasher>
 template <typename ValueConstructFn>
-inline bool StrongLRUCache<Key, Value, Hasher>::try_emplace(Key key, ValueConstructFn constructValue)
+inline bool strong_lru_cache<Key, Value, Hasher>::try_emplace(Key key, ValueConstructFn constructValue)
 {
-    return _hashtable->try_emplace(Hasher {}(key), [&](auto v) {
-        return Entry { key, constructValue(std::move(v)) };
-    });
+    return _hashtable->try_emplace(Hasher {}(key),
+                                   [&](auto v) { return entry { key, constructValue(std::move(v)) }; });
 }
 
 template <typename Key, typename Value, typename Hasher>
 template <typename ValueConstructFn>
-inline Value& StrongLRUCache<Key, Value, Hasher>::get_or_emplace(Key key, ValueConstructFn constructValue)
+inline Value& strong_lru_cache<Key, Value, Hasher>::get_or_emplace(Key key, ValueConstructFn constructValue)
 {
-    return _hashtable->get_or_emplace(Hasher {}(key),
-                                      [&](auto v) {
-                                          return Entry { key, constructValue(v) };
-                                      })
+    return _hashtable
+        ->get_or_emplace(Hasher {}(key), [&](auto v) { return entry { key, constructValue(v) }; })
         .value;
 }
 
 template <typename Key, typename Value, typename Hasher>
-inline Value& StrongLRUCache<Key, Value, Hasher>::emplace(Key key, Value value) noexcept
+inline Value& strong_lru_cache<Key, Value, Hasher>::emplace(Key key, Value value) noexcept
 {
-    return _hashtable->emplace(Hasher {}(key), Entry { key, std::move(value) }).value;
+    return _hashtable->emplace(Hasher {}(key), entry { key, std::move(value) }).value;
 }
 
 template <typename Key, typename Value, typename Hasher>
-std::vector<Key> StrongLRUCache<Key, Value, Hasher>::keys() const
+std::vector<Key> strong_lru_cache<Key, Value, Hasher>::keys() const
 {
     auto result = std::vector<Key> {};
-    for (StrongHash const& hash: _hashtable->hashes())
+    for (strong_hash const& hash: _hashtable->hashes())
         result.emplace_back(_hashtable->peek(hash).key);
     return result;
 }
 
 template <typename Key, typename Value, typename Hasher>
-void StrongLRUCache<Key, Value, Hasher>::inspect(std::ostream& output) const
+void strong_lru_cache<Key, Value, Hasher>::inspect(std::ostream& output) const
 {
     _hashtable->inspect(output);
 }
@@ -254,21 +239,13 @@ void StrongLRUCache<Key, Value, Hasher>::inspect(std::ostream& output) const
 } // namespace crispy
 
 // {{{ fmt
-namespace fmt
-{
 template <typename K, typename V>
-struct formatter<crispy::detail::LRUCacheEntry<K, V>>
+struct std::formatter<crispy::detail::lru_cache_entry<K, V>>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto parse(format_parse_context& ctx) -> format_parse_context::iterator { return ctx.begin(); }
+    auto format(crispy::detail::lru_cache_entry<K, V> const& entry, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(crispy::detail::LRUCacheEntry<K, V> const& entry, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}: {}", entry.key, entry.value);
+        return std::format_to(ctx.out(), "{}: {}", entry.key, entry.value);
     }
 };
-} // namespace fmt
 // }}}

@@ -1,37 +1,26 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Color.h>
-#include <vtbackend/primitives.h> // ImageSize
+#include <vtbackend/primitives.h>
 
 #include <crispy/StrongHash.h>
 #include <crispy/StrongLRUHashtable.h>
 #include <crispy/assert.h>
-#include <crispy/boxed.h>
 
-#include <fmt/format.h>
-
+#include <cstdint>
+#include <format>
 #include <variant> // monostate
 #include <vector>
 
-namespace terminal::rasterizer::atlas
+#include <boxed-cpp/boxed.hpp>
+
+namespace vtrasterizer::atlas
 {
 
 using Buffer = std::vector<uint8_t>;
 
-enum class Format
+enum class Format : uint8_t
 {
     Red = 1,
     RGB = 3,
@@ -111,15 +100,15 @@ struct AtlasProperties
     Format format {};
 
     // Size in pixels of a tile.
-    ImageSize tileSize {};
+    vtbackend::ImageSize tileSize {};
 
     // Number of hashtable slots to map to the texture tiles.
     // Larger values may increase performance, but too large may also decrease.
     // This value is rounted up to a value equal to the power of two.
-    crispy::StrongHashtableSize hashCount {};
+    crispy::strong_hashtable_size hashCount {};
 
     // Number of tiles the texture atlas must be able to store at least.
-    crispy::LRUCapacity tileCount {};
+    crispy::lru_capacity tileCount {};
 
     // Number of direct-mapped tile slots.
     //
@@ -135,7 +124,7 @@ struct AtlasProperties
 struct ConfigureAtlas
 {
     // Texture atlas size in pixels.
-    crispy::ImageSize size {};
+    vtbackend::ImageSize size {};
 
     AtlasProperties properties {};
 };
@@ -145,7 +134,7 @@ struct UploadTile
 {
     TileLocation location;
     Buffer bitmap; // texture data to be uploaded
-    ImageSize bitmapSize;
+    vtbackend::ImageSize bitmapSize;
     Format bitmapFormat;
     int rowAlignment = 1; // byte-alignment per row
 };
@@ -158,19 +147,19 @@ struct RenderTile
     struct Y { int value; };
     // clang-format on
 
-    X x {};                       // target X coordinate to start rendering to
-    Y y {};                       // target Y coordinate to start rendering to
-    ImageSize bitmapSize {};      // bitmap size inside the tile (must not exceed the grid's tile size)
-    ImageSize targetSize {};      // dimensions of the bitmap on the render target surface
-    std::array<float, 4> color;   // optional; a color being associated with this texture
-    TileLocation tileLocation {}; // what tile to render from which texture atlas
+    X x {};                             // target X coordinate to start rendering to
+    Y y {};                             // target Y coordinate to start rendering to
+    vtbackend::ImageSize bitmapSize {}; // bitmap size inside the tile (must not exceed the grid's tile size)
+    vtbackend::ImageSize targetSize {}; // dimensions of the bitmap on the render target surface
+    std::array<float, 4> color;         // optional; a color being associated with this texture
+    TileLocation tileLocation;          // what tile to render from which texture atlas
 
     NormalizedTileLocation normalizedLocation {};
 
     uint32_t fragmentShaderSelector {};
 };
 
-constexpr std::array<float, 4> normalize(terminal::RGBColor color, float alpha) noexcept
+constexpr std::array<float, 4> normalize(vtbackend::RGBColor color, float alpha) noexcept
 {
     return std::array<float, 4> { static_cast<float>(color.red) / 255.f,
                                   static_cast<float>(color.green) / 255.f,
@@ -178,7 +167,7 @@ constexpr std::array<float, 4> normalize(terminal::RGBColor color, float alpha) 
                                   alpha };
 }
 
-constexpr std::array<float, 4> normalize(terminal::RGBAColor color) noexcept
+constexpr std::array<float, 4> normalize(vtbackend::RGBAColor color) noexcept
 {
     return std::array<float, 4> { static_cast<float>(color.red()) / 255.f,
                                   static_cast<float>(color.green()) / 255.f,
@@ -199,7 +188,7 @@ class AtlasBackend
   public:
     virtual ~AtlasBackend() = default;
 
-    [[nodiscard]] virtual ImageSize atlasSize() const noexcept = 0;
+    [[nodiscard]] virtual vtbackend::ImageSize atlasSize() const noexcept = 0;
 
     /// Creates a new texture atlas, effectively destroying any prior existing one
     /// as there  can be only one atlas.
@@ -217,7 +206,7 @@ template <typename Metadata>
 struct TileAttributes
 {
     TileLocation location;
-    ImageSize bitmapSize; // size of the bitmap inside the tile
+    vtbackend::ImageSize bitmapSize; // size of the bitmap inside the tile
     Metadata metadata;
 };
 
@@ -248,18 +237,21 @@ class TextureAtlas
 
     [[nodiscard]] AtlasBackend& backend() noexcept { return _backend; }
 
-    [[nodiscard]] ImageSize atlasSize() const noexcept { return _atlasSize; }
-    [[nodiscard]] ImageSize tileSize() const noexcept { return _atlasProperties.tileSize; }
+    [[nodiscard]] vtbackend::ImageSize atlasSize() const noexcept { return _atlasSize; }
+    [[nodiscard]] vtbackend::ImageSize tileSize() const noexcept { return _atlasProperties.tileSize; }
 
     // Tests in LRU-cache if the tile
-    [[nodiscard]] constexpr bool contains(crispy::StrongHash const& id) const noexcept;
+    [[nodiscard]] constexpr bool contains(crispy::strong_hash const& id) const noexcept;
 
     // Return type for in-place tile-construction callback.
     struct TileCreateData
     {
         TileCreateData(): bitmapFormat {}, bitmapSize {}, metadata {} {}
 
-        TileCreateData(Buffer bitmap, Format bitmapFormat, ImageSize bitmapSize, Metadata metadata):
+        TileCreateData(Buffer bitmap,
+                       Format bitmapFormat,
+                       vtbackend::ImageSize bitmapSize,
+                       Metadata metadata):
             bitmap(std::move(bitmap)),
             bitmapFormat(bitmapFormat),
             bitmapSize(bitmapSize),
@@ -269,27 +261,27 @@ class TextureAtlas
 
         Buffer bitmap; // RGBA bitmap data
         Format bitmapFormat;
-        ImageSize bitmapSize;
+        vtbackend::ImageSize bitmapSize;
         Metadata metadata;
     };
 
     /// Always returns either the existing item by the given key, if found,
     /// or a newly created one by invoking constructValue().
     template <typename CreateTileDataFn>
-    [[nodiscard]] TileAttributes<Metadata>& get_or_emplace(crispy::StrongHash const& key,
+    [[nodiscard]] TileAttributes<Metadata>& get_or_emplace(crispy::strong_hash const& key,
                                                            CreateTileDataFn constructValue);
 
-    [[nodiscard]] TileAttributes<Metadata> const* try_get(crispy::StrongHash const& key);
+    [[nodiscard]] TileAttributes<Metadata> const* try_get(crispy::strong_hash const& key);
 
     template <typename CreateTileDataFn>
-    [[nodiscard]] TileAttributes<Metadata> const* get_or_try_emplace(crispy::StrongHash const& key,
+    [[nodiscard]] TileAttributes<Metadata> const* get_or_try_emplace(crispy::strong_hash const& key,
                                                                      CreateTileDataFn constructValue);
 
     /// Explicitly create or overwrites a tile for the given hash key.
     template <typename CreateTileDataFn>
-    void emplace(crispy::StrongHash const& key, CreateTileDataFn constructValue);
+    void emplace(crispy::strong_hash const& key, CreateTileDataFn constructValue);
 
-    void remove(crispy::StrongHash key);
+    void remove(crispy::strong_hash key);
 
     // Uploads tile data to a direct-mapped slot in the texture atlas
     // bypassing the LRU cache.
@@ -315,8 +307,8 @@ class TextureAtlas
     [[nodiscard]] uint32_t tilesInY() const noexcept { return _tilesInY; }
 
   private:
-    using TileCache = crispy::StrongLRUHashtable<TileAttributes<Metadata>>;
-    using TileCachePtr = typename TileCache::Ptr;
+    using TileCache = crispy::strong_lru_hashtable<TileAttributes<Metadata>>;
+    using TileCachePtr = typename TileCache::ptr;
 
     template <typename CreateTileDataFn>
     std::optional<TileAttributes<Metadata>> constructTile(CreateTileDataFn createTileData,
@@ -324,7 +316,7 @@ class TextureAtlas
 
     AtlasBackend& _backend;
     AtlasProperties _atlasProperties;
-    ImageSize _atlasSize;
+    vtbackend::ImageSize _atlasSize;
     uint32_t _tilesInX;
     uint32_t _tilesInY;
 
@@ -378,7 +370,7 @@ struct DirectMappingAllocator
 
         uint32_t const baseIndex = currentlyAllocatedCount;
         currentlyAllocatedCount += count;
-        // fmt::print("DirectMappingAllocator.allocate: {} .. {} (#{})\n",
+        // std::cout << std::format("DirectMappingAllocator.allocate: {} .. {} (#{})\n",
         //            baseIndex, baseIndex + count - 1, count);
         return DirectMapping<Metadata> { baseIndex, count };
     }
@@ -393,17 +385,17 @@ struct TileSliceIndex
 
 /// Constructs a container to conveniently iterate over sliced tiles of the given
 /// input `bitmapSize`.
-constexpr auto sliced(Width tileWidth, uint32_t offsetX, ImageSize bitmapSize)
+constexpr auto sliced(vtbackend::Width tileWidth, uint32_t offsetX, vtbackend::ImageSize bitmapSize)
 {
     struct Container
     {
-        Width tileWidth;
+        vtbackend::Width tileWidth;
         uint32_t offsetX;
-        ImageSize bitmapSize;
+        vtbackend::ImageSize bitmapSize;
 
         struct iterator // NOLINT(readability-identifier-naming)
         {
-            Width tileWidth;
+            vtbackend::Width tileWidth;
             TileSliceIndex value;
             constexpr TileSliceIndex const& operator*() const noexcept { return value; }
             constexpr bool operator==(iterator const& rhs) const noexcept
@@ -418,24 +410,24 @@ constexpr auto sliced(Width tileWidth, uint32_t offsetX, ImageSize bitmapSize)
             {
                 value.sliceIndex++;
                 value.beginX = value.endX;
-                value.endX += unbox<uint32_t>(tileWidth);
+                value.endX += unbox(tileWidth);
                 return *this;
             }
         };
 
         [[nodiscard]] constexpr uint32_t offsetForEndX() const noexcept
         {
-            auto const c = unbox<uint32_t>(bitmapSize.width) % unbox<uint32_t>(tileWidth);
-            return unbox<uint32_t>(bitmapSize.width) + c;
+            auto const c = unbox(bitmapSize.width) % unbox(tileWidth);
+            return unbox(bitmapSize.width) + c;
         }
 
         [[nodiscard]] constexpr iterator begin() noexcept
         {
             return iterator { tileWidth,
                               TileSliceIndex {
-                                  0,                         // index
-                                  offsetX,                   // begin
-                                  unbox<uint32_t>(tileWidth) // end
+                                  0,               // index
+                                  offsetX,         // begin
+                                  unbox(tileWidth) // end
                               } };
         }
 
@@ -454,7 +446,7 @@ constexpr auto sliced(Width tileWidth, uint32_t offsetX, ImageSize bitmapSize)
 
 // {{{ implementation
 
-inline ImageSize computeAtlasSize(AtlasProperties const& atlasProperties) noexcept
+inline vtbackend::ImageSize computeAtlasSize(AtlasProperties const& atlasProperties) noexcept
 {
     using std::ceil;
     using std::sqrt;
@@ -463,13 +455,13 @@ inline ImageSize computeAtlasSize(AtlasProperties const& atlasProperties) noexce
     auto const totalTileCount = crispy::nextPowerOfTwo(1 + atlasProperties.tileCount.value + atlasProperties.directMappingCount);
     //auto const totalTileCount = atlasProperties.tileCount.value + atlasProperties.directMappingCount;
     auto const squareEdgeCount = static_cast<uint32_t>(ceil(sqrt(totalTileCount)));
-    auto const width = Width::cast_from(crispy::nextPowerOfTwo(static_cast<uint32_t>(
-        squareEdgeCount * unbox<uint32_t>(atlasProperties.tileSize.width))));
-    auto const height = Height::cast_from(crispy::nextPowerOfTwo(static_cast<uint32_t>(
-        squareEdgeCount * unbox<uint32_t>(atlasProperties.tileSize.height))));
+    auto const width = vtbackend::Width::cast_from(crispy::nextPowerOfTwo(static_cast<uint32_t>(
+        squareEdgeCount * unbox(atlasProperties.tileSize.width))));
+    auto const height = vtbackend::Height::cast_from(crispy::nextPowerOfTwo(static_cast<uint32_t>(
+        squareEdgeCount * unbox(atlasProperties.tileSize.height))));
     // clang-format on
 
-    // fmt::print("computeAtlasSize: tiles {}+{}={} -> texture size {}x{} (tile size {})\n",
+    // std::cout << std::format("computeAtlasSize: tiles {}+{}={} -> texture size {}x{} (tile size {})\n",
     //            atlasProperties.tileCount,
     //            atlasProperties.directMappingCount,
     //            totalTileCount,
@@ -477,7 +469,7 @@ inline ImageSize computeAtlasSize(AtlasProperties const& atlasProperties) noexce
     //            height,
     //            atlasProperties.tileSize);
 
-    return ImageSize { width, height };
+    return vtbackend::ImageSize { width, height };
 }
 
 template <typename Metadata>
@@ -486,33 +478,31 @@ TextureAtlas<Metadata>::TextureAtlas(AtlasBackend& backend, AtlasProperties atla
     _atlasProperties { atlasProperties },
     _atlasSize { computeAtlasSize(_atlasProperties) },
     _tilesInX { [&]() {
-        Require(unbox<uint32_t>(_atlasProperties.tileSize.width) != 0);
-        auto const tilesInX =
-            unbox<uint32_t>(_atlasSize.width) / unbox<uint32_t>(_atlasProperties.tileSize.width);
+        Require(unbox(_atlasProperties.tileSize.width) != 0);
+        auto const tilesInX = unbox(_atlasSize.width) / unbox(_atlasProperties.tileSize.width);
         Require(tilesInX != 0);
         return tilesInX;
     }() },
     _tilesInY { [&]() {
-        Require(unbox<uint32_t>(_atlasProperties.tileSize.height) != 0);
-        auto const tilesInY =
-            unbox<uint32_t>(_atlasSize.height) / unbox<uint32_t>(_atlasProperties.tileSize.height);
+        Require(unbox(_atlasProperties.tileSize.height) != 0);
+        auto const tilesInY = unbox(_atlasSize.height) / unbox(_atlasProperties.tileSize.height);
         Require(tilesInY != 0);
         return tilesInY;
     }() },
     _tileCache { TileCache::create(
         atlasProperties.hashCount,
-        crispy::LRUCapacity { // The LRU entry capacity is the number of total tiles availabe,
-                              // minus the number of reserved tiles for direct-mapping, and
-                              // minus one for the LRU-sentinel entry (which is why entryIndex
-                              // is between 1 and capacity inclusive)
-                              _tilesInX * _tilesInY - _atlasProperties.directMappingCount - 1 },
+        crispy::lru_capacity { // The LRU entry capacity is the number of total tiles availabe,
+                               // minus the number of reserved tiles for direct-mapping, and
+                               // minus one for the LRU-sentinel entry (which is why entryIndex
+                               // is between 1 and capacity inclusive)
+                               _tilesInX * _tilesInY - _atlasProperties.directMappingCount - 1 },
         "LRU cache for texture atlas") },
     _tileLocations { static_cast<size_t>(_tilesInX * _tilesInY) }
 {
     Require(_atlasProperties.tileCount.value <= _tileCache->capacity());
     Require(_atlasProperties.directMappingCount + _atlasProperties.tileCount.value <= _tilesInX * _tilesInY);
 
-    // fmt::print("TextureAtlas: tiles {}x{} (locations: {} >= {}) texture {}; props {}\n",
+    // std::cout << std::format("TextureAtlas: tiles {}x{} (locations: {} >= {}) texture {}; props {}\n",
     //            _tilesInX,
     //            _tilesInY,
     //            _tileLocations.size(),
@@ -534,8 +524,8 @@ TextureAtlas<Metadata>::TextureAtlas(AtlasBackend& backend, AtlasProperties atla
         auto const xBase =
             static_cast<uint16_t>((tileIndex % _tilesInX) * _atlasProperties.tileSize.width.value);
 
-        auto const yBase = static_cast<uint16_t>((tileIndex / _tilesInX)
-                                                 * unbox<uint32_t>(_atlasProperties.tileSize.height));
+        auto const yBase =
+            static_cast<uint16_t>((tileIndex / _tilesInX) * unbox(_atlasProperties.tileSize.height));
 
         _tileLocations[tileIndex] = TileLocation({ xBase }, { yBase });
     }
@@ -544,15 +534,15 @@ TextureAtlas<Metadata>::TextureAtlas(AtlasBackend& backend, AtlasProperties atla
 }
 
 template <typename Metadata>
-constexpr bool TextureAtlas<Metadata>::contains(crispy::StrongHash const& id) const noexcept
+constexpr bool TextureAtlas<Metadata>::contains(crispy::strong_hash const& id) const noexcept
 {
     return _tileCache->contains(id);
 }
 
 template <typename Metadata>
 template <typename CreateTileDataFn>
-auto TextureAtlas<Metadata>::constructTile(CreateTileDataFn createTileData, uint32_t entryIndex)
-    -> std::optional<TileAttributes<Metadata>>
+auto TextureAtlas<Metadata>::constructTile(CreateTileDataFn createTileData,
+                                           uint32_t entryIndex) -> std::optional<TileAttributes<Metadata>>
 {
     Require(1 <= entryIndex && entryIndex <= _tileCache->capacity());
     auto const tileIndex = _atlasProperties.directMappingCount + entryIndex;
@@ -583,7 +573,7 @@ auto TextureAtlas<Metadata>::constructTile(CreateTileDataFn createTileData, uint
 
 template <typename Metadata>
 template <typename CreateTileDataFn>
-TileAttributes<Metadata>& TextureAtlas<Metadata>::get_or_emplace(crispy::StrongHash const& key,
+TileAttributes<Metadata>& TextureAtlas<Metadata>::get_or_emplace(crispy::strong_hash const& key,
                                                                  CreateTileDataFn constructValue)
 {
     return _tileCache->get_or_emplace(key,
@@ -593,7 +583,7 @@ TileAttributes<Metadata>& TextureAtlas<Metadata>::get_or_emplace(crispy::StrongH
 }
 
 template <typename Metadata>
-TileAttributes<Metadata> const* TextureAtlas<Metadata>::try_get(crispy::StrongHash const& key)
+TileAttributes<Metadata> const* TextureAtlas<Metadata>::try_get(crispy::strong_hash const& key)
 {
     return _tileCache->try_get(key);
 }
@@ -601,7 +591,7 @@ TileAttributes<Metadata> const* TextureAtlas<Metadata>::try_get(crispy::StrongHa
 template <typename Metadata>
 template <typename CreateTileDataFn>
 [[nodiscard]] TileAttributes<Metadata> const* TextureAtlas<Metadata>::get_or_try_emplace(
-    crispy::StrongHash const& key, CreateTileDataFn constructValue)
+    crispy::strong_hash const& key, CreateTileDataFn constructValue)
 {
     return _tileCache->get_or_try_emplace(
         key, [&](uint32_t entryIndex) -> std::optional<TileAttributes<Metadata>> {
@@ -611,7 +601,7 @@ template <typename CreateTileDataFn>
 
 template <typename Metadata>
 template <typename CreateTileDataFn>
-void TextureAtlas<Metadata>::emplace(crispy::StrongHash const& key, CreateTileDataFn constructValue)
+void TextureAtlas<Metadata>::emplace(crispy::strong_hash const& key, CreateTileDataFn constructValue)
 {
     // clang-format off
     _tileCache->emplace(
@@ -632,7 +622,7 @@ void TextureAtlas<Metadata>::emplace(crispy::StrongHash const& key, CreateTileDa
 }
 
 template <typename Metadata>
-void TextureAtlas<Metadata>::remove(crispy::StrongHash key)
+void TextureAtlas<Metadata>::remove(crispy::strong_hash key)
 {
     _tileCache->remove(key);
 }
@@ -676,91 +666,65 @@ void TextureAtlas<Metadata>::setDirectMapping(uint32_t tileIndex, TileCreateData
 template <typename Metadata>
 void TextureAtlas<Metadata>::inspect(std::ostream& output) const
 {
-    output << fmt::format("TextureAtlas\n");
-    output << fmt::format("------------------------\n");
-    output << fmt::format("atlas size     : {}\n", _atlasSize);
-    output << fmt::format("tile size      : {}\n", _atlasProperties.tileSize);
-    output << fmt::format("direct mapped  : {}\n", _atlasProperties.directMappingCount);
+    output << std::format("TextureAtlas\n");
+    output << std::format("------------------------\n");
+    output << std::format("atlas size     : {}\n", _atlasSize);
+    output << std::format("tile size      : {}\n", _atlasProperties.tileSize);
+    output << std::format("direct mapped  : {}\n", _atlasProperties.directMappingCount);
     output << '\n';
     _tileCache->inspect(output);
 }
 
 // }}}
 
-} // namespace terminal::rasterizer::atlas
+} // namespace vtrasterizer::atlas
 
-// {{{ fmt
-namespace fmt
-{
+// {{{ fmt support
 template <>
-struct formatter<terminal::rasterizer::atlas::Format>
+struct std::formatter<vtrasterizer::atlas::Format>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::atlas::Format value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::atlas::Format value, FormatContext& ctx)
-    {
+        std::string_view name;
         switch (value)
         {
-            case terminal::rasterizer::atlas::Format::Red: return fmt::format_to(ctx.out(), "R");
-            case terminal::rasterizer::atlas::Format::RGB: return fmt::format_to(ctx.out(), "RGB");
-            case terminal::rasterizer::atlas::Format::RGBA: return fmt::format_to(ctx.out(), "RGBA");
+            case vtrasterizer::atlas::Format::Red: name = "R"; break;
+            case vtrasterizer::atlas::Format::RGB: name = "RGB"; break;
+            case vtrasterizer::atlas::Format::RGBA: name = "RGBA"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", static_cast<unsigned>(value));
+        return formatter<std::string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::rasterizer::atlas::TileLocation>
+struct std::formatter<vtrasterizer::atlas::TileLocation>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::atlas::TileLocation value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::atlas::TileLocation value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "Tile {}x+{}y", value.x.value, value.y.value);
+        return formatter<std::string>::format(std::format("Tile {}x+{}y", value.x.value, value.y.value), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::rasterizer::atlas::RenderTile>
+struct std::formatter<vtrasterizer::atlas::RenderTile>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::atlas::RenderTile const& value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::atlas::RenderTile const& value, FormatContext& ctx)
-    {
-        return fmt::format_to(
-            ctx.out(), "RenderTile({}x + {}y, {})", value.x.value, value.y.value, value.tileLocation);
+        return formatter<std::string>::format(
+            std::format("RenderTile({}x + {}y, {})", value.x.value, value.y.value, value.tileLocation), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::rasterizer::atlas::AtlasProperties>
+struct std::formatter<vtrasterizer::atlas::AtlasProperties>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::atlas::AtlasProperties const& value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::atlas::AtlasProperties const& value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "tile size {}, format {}, direct-mapped {}",
-                              value.tileSize,
-                              value.format,
-                              value.directMappingCount);
+        return formatter<std::string>::format(std::format("tile size {}, format {}, direct-mapped {}",
+                                                          value.tileSize,
+                                                          value.format,
+                                                          value.directMappingCount),
+                                              ctx);
     }
 };
-} // namespace fmt
 // }}}

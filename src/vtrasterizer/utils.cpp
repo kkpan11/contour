@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtrasterizer/utils.h>
 
 #include <range/v3/view/iota.hpp>
@@ -18,12 +6,14 @@
 #include <algorithm> // max?
 #include <cassert>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 using namespace std;
 
-vector<uint8_t> downsampleRGBA(vector<uint8_t> const& bitmap, ImageSize size, ImageSize newSize)
+vector<uint8_t> downsampleRGBA(vector<uint8_t> const& bitmap,
+                               vtbackend::ImageSize size,
+                               vtbackend::ImageSize newSize)
 {
     assert(size.width >= newSize.width);
     assert(size.height >= newSize.height);
@@ -53,7 +43,7 @@ vector<uint8_t> downsampleRGBA(vector<uint8_t> const& bitmap, ImageSize size, Im
             unsigned int count = 0;
             for (unsigned y = sr; y < min(sr + factor, size.height.as<unsigned>()); y++)
             {
-                uint8_t const* p = bitmap.data() + (y * *size.width * 4) + sc * 4;
+                uint8_t const* p = bitmap.data() + (y * unbox(size.width) * 4) + (sc * 4);
                 for (unsigned x = sc; x < min(sc + factor, size.width.as<unsigned>()); x++, count++)
                 {
                     b += *(p++);
@@ -78,8 +68,8 @@ vector<uint8_t> downsampleRGBA(vector<uint8_t> const& bitmap, ImageSize size, Im
 
 vector<uint8_t> downsample(vector<uint8_t> const& bitmap,
                            uint8_t numComponents,
-                           ImageSize size,
-                           ImageSize newSize)
+                           vtbackend::ImageSize size,
+                           vtbackend::ImageSize newSize)
 {
     assert(size.width >= newSize.width);
     assert(size.height >= newSize.height);
@@ -91,7 +81,7 @@ vector<uint8_t> downsample(vector<uint8_t> const& bitmap,
 
     std::vector<uint8_t> dest(*newSize.width * *newSize.height * numComponents, 0);
 
-    RasterizerLog()("downsample from {} to {}, ratio {}x{} ({}), factor {}",
+    rasterizerLog()("downsample from {} to {}, ratio {}x{} ({}), factor {}",
                     size,
                     newSize,
                     ratioX,
@@ -111,7 +101,7 @@ vector<uint8_t> downsample(vector<uint8_t> const& bitmap,
             unsigned count = 0; // number of pixels being averaged
             for (auto y = sr; y < min(sr + factor, size.height.as<unsigned>()); y++)
             {
-                uint8_t const* p = bitmap.data() + (y * *size.width * numComponents) + sc * numComponents;
+                uint8_t const* p = bitmap.data() + (y * *size.width * numComponents) + (sc * numComponents);
                 for (auto x = sc; x < min(sc + factor, size.width.as<unsigned>()); x++, count++)
                     for (auto const k: ::ranges::views::iota(0u, numComponents))
                         values.at(k) += *(p++);
@@ -128,12 +118,14 @@ vector<uint8_t> downsample(vector<uint8_t> const& bitmap,
     return dest;
 }
 
-vector<uint8_t> downsample(vector<uint8_t> const& sourceBitmap, ImageSize targetSize, uint8_t factor)
+vector<uint8_t> downsample(vector<uint8_t> const& sourceBitmap,
+                           vtbackend::ImageSize targetSize,
+                           uint8_t factor)
 {
     vector<uint8_t> targetBitmap(*targetSize.width * *targetSize.height, 0);
 
     auto const sourceWidth = factor * *targetSize.width;
-    auto const average_intensity_in_src = [&](unsigned destX, unsigned destY) -> unsigned {
+    auto const averageIntensityInSrc = [&](unsigned destX, unsigned destY) -> unsigned {
         auto sourceY = destY * factor;
         auto sourceX = destX * factor;
         auto total = 0u;
@@ -151,10 +143,10 @@ vector<uint8_t> downsample(vector<uint8_t> const& sourceBitmap, ImageSize target
         auto const offset = *targetSize.width * y;
         for (auto const x: ::ranges::views::iota(0u, *targetSize.width))
             targetBitmap[offset + x] =
-                (uint8_t) min(255u, unsigned(targetBitmap[offset + x]) + average_intensity_in_src(x, y));
+                (uint8_t) min(255u, unsigned(targetBitmap[offset + x]) + averageIntensityInSrc(x, y));
     }
 
     return targetBitmap;
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

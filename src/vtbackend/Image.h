@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Color.h>
@@ -19,16 +7,13 @@
 #include <crispy/StrongHash.h>
 #include <crispy/StrongLRUCache.h>
 
-#include <fmt/format.h>
-
 #include <cstdint>
+#include <format>
 #include <functional>
-#include <list>
-#include <map>
 #include <memory>
 #include <vector>
 
-namespace terminal
+namespace vtbackend
 {
 
 // XXX DRAFT
@@ -37,7 +22,7 @@ namespace terminal
 // Or do we want to deal with Image slices right away and just keep those?
 // The latter doesn't require reference counting.
 
-enum class ImageFormat
+enum class ImageFormat : uint8_t
 {
     RGB,
     RGBA,
@@ -45,7 +30,7 @@ enum class ImageFormat
 
 // clang-format off
 namespace detail { struct ImageId {}; }
-using ImageId = crispy::boxed<uint32_t, detail::ImageId>; // unique numerical image identifier
+using ImageId = boxed::boxed<uint32_t, detail::ImageId>; // unique numerical image identifier
 // clang-format on
 
 struct ImageStats
@@ -102,7 +87,7 @@ class Image: public std::enable_shared_from_this<Image>
 };
 
 /// Image resize hints are used to properly fit/fill the area to place the image onto.
-enum class ImageResize
+enum class ImageResize : uint8_t
 {
     NoResize,
     ResizeToFit, // default
@@ -112,7 +97,7 @@ enum class ImageResize
 
 /// Image alignment policy are used to properly align the image to a given spot when not fully
 /// filling the area this image as to be placed to.
-enum class ImageAlignment
+enum class ImageAlignment : uint8_t
 {
     TopStart,
     TopCenter,
@@ -216,7 +201,7 @@ namespace detail
 {
     struct ImageFragmentId;
 }
-using ImageFragmentId = crispy::boxed<uint16_t, detail::ImageFragmentId>;
+using ImageFragmentId = boxed::boxed<uint16_t, detail::ImageFragmentId>;
 
 inline bool operator==(ImageFragment const& a, ImageFragment const& b) noexcept
 {
@@ -243,19 +228,10 @@ class ImagePool
   public:
     using OnImageRemove = std::function<void(Image const*)>;
 
-    ImagePool(
-        OnImageRemove onImageRemove = [](auto) {}, ImageId nextImageId = ImageId(1));
+    ImagePool(OnImageRemove onImageRemove = [](auto) {}, ImageId nextImageId = ImageId(1));
 
     /// Creates an RGBA image of given size in pixels.
     std::shared_ptr<Image const> create(ImageFormat format, ImageSize pixelSize, Image::Data&& data);
-
-    /// Rasterizes an Image.
-    std::shared_ptr<RasterizedImage> rasterize(std::shared_ptr<Image const> image,
-                                               ImageAlignment alignmentPolicy,
-                                               ImageResize resizePolicy,
-                                               RGBAColor defaultColor,
-                                               GridSize cellSpan,
-                                               ImageSize cellSize);
 
     // named image access
     //
@@ -270,7 +246,7 @@ class ImagePool
   private:
     void removeRasterizedImage(RasterizedImage* image); //!< Removes a rasterized image from pool.
 
-    using NameToImageIdCache = crispy::StrongLRUCache<std::string, std::shared_ptr<Image const>>;
+    using NameToImageIdCache = crispy::strong_lru_cache<std::string, std::shared_ptr<Image const>>;
 
     // data members
     //
@@ -279,160 +255,122 @@ class ImagePool
     OnImageRemove _onImageRemove;              //!< Callback to be invoked when image gets removed from pool.
 };
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
-
+// {{{ fmtlib support
 template <>
-struct formatter<terminal::ImageFormat>
+struct std::formatter<vtbackend::ImageFormat>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ImageFormat value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(terminal::ImageFormat value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::ImageFormat::RGB: return fmt::format_to(ctx.out(), "RGB");
-            case terminal::ImageFormat::RGBA: return fmt::format_to(ctx.out(), "RGBA");
+            case vtbackend::ImageFormat::RGB: name = "RGB"; break;
+            case vtbackend::ImageFormat::RGBA: name = "RGBA"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ImageStats>
+struct std::formatter<vtbackend::ImageStats>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ImageStats stats, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(terminal::ImageStats stats, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "{} instances, {} raster, {} fragments",
-                              stats.instances,
-                              stats.rasterized,
-                              stats.fragments);
+        return formatter<std::string>::format(
+            std::format(
+                "{} instances, {} raster, {} fragments", stats.instances, stats.rasterized, stats.fragments),
+            ctx);
     }
 };
 
 template <>
-struct formatter<std::shared_ptr<terminal::Image const>>
+struct std::formatter<std::shared_ptr<vtbackend::Image const>>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(std::shared_ptr<vtbackend::Image const> const& image, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(std::shared_ptr<terminal::Image const> const& image, FormatContext& ctx)
-    {
+        std::string text;
         if (!image)
-            return fmt::format_to(ctx.out(), "nullptr");
-        terminal::Image const& imageRef = *image;
-        return fmt::format_to(ctx.out(),
-                              "Image<#{}, {}, size={}>",
-                              imageRef.weak_from_this().use_count(),
-                              imageRef.id(),
-                              imageRef.size());
+            text = "nullptr";
+        else
+        {
+            vtbackend::Image const& imageRef = *image;
+            text = std::format("Image<#{}, {}, size={}x{}>",
+                               imageRef.weak_from_this().use_count(),
+                               imageRef.id(),
+                               imageRef.size().width.value,
+                               imageRef.size().height.value);
+        }
+        return formatter<std::string>::format(text, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ImageResize>
+struct std::formatter<vtbackend::ImageResize>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ImageResize value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(const terminal::ImageResize value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::ImageResize::NoResize: return fmt::format_to(ctx.out(), "NoResize");
-            case terminal::ImageResize::ResizeToFit: return fmt::format_to(ctx.out(), "ResizeToFit");
-            case terminal::ImageResize::ResizeToFill: return fmt::format_to(ctx.out(), "ResizeToFill");
-            case terminal::ImageResize::StretchToFill: return fmt::format_to(ctx.out(), "StretchToFill");
+            case vtbackend::ImageResize::NoResize: name = "NoResize"; break;
+            case vtbackend::ImageResize::ResizeToFit: name = "ResizeToFit"; break;
+            case vtbackend::ImageResize::ResizeToFill: name = "ResizeToFill"; break;
+            case vtbackend::ImageResize::StretchToFill: name = "StretchToFill"; break;
         }
-        return fmt::format_to(ctx.out(), "ResizePolicy({})", int(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ImageAlignment>
+struct std::formatter<vtbackend::ImageAlignment>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ImageAlignment value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(const terminal::ImageAlignment value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::ImageAlignment::TopStart: return fmt::format_to(ctx.out(), "TopStart");
-            case terminal::ImageAlignment::TopCenter: return fmt::format_to(ctx.out(), "TopCenter");
-            case terminal::ImageAlignment::TopEnd: return fmt::format_to(ctx.out(), "TopEnd");
-            case terminal::ImageAlignment::MiddleStart: return fmt::format_to(ctx.out(), "MiddleStart");
-            case terminal::ImageAlignment::MiddleCenter: return fmt::format_to(ctx.out(), "MiddleCenter");
-            case terminal::ImageAlignment::MiddleEnd: return fmt::format_to(ctx.out(), "MiddleEnd");
-            case terminal::ImageAlignment::BottomStart: return fmt::format_to(ctx.out(), "BottomStart");
-            case terminal::ImageAlignment::BottomCenter: return fmt::format_to(ctx.out(), "BottomCenter");
-            case terminal::ImageAlignment::BottomEnd: return fmt::format_to(ctx.out(), "BottomEnd");
+            case vtbackend::ImageAlignment::TopStart: name = "TopStart"; break;
+            case vtbackend::ImageAlignment::TopCenter: name = "TopCenter"; break;
+            case vtbackend::ImageAlignment::TopEnd: name = "TopEnd"; break;
+            case vtbackend::ImageAlignment::MiddleStart: name = "MiddleStart"; break;
+            case vtbackend::ImageAlignment::MiddleCenter: name = "MiddleCenter"; break;
+            case vtbackend::ImageAlignment::MiddleEnd: name = "MiddleEnd"; break;
+            case vtbackend::ImageAlignment::BottomStart: name = "BottomStart"; break;
+            case vtbackend::ImageAlignment::BottomCenter: name = "BottomCenter"; break;
+            case vtbackend::ImageAlignment::BottomEnd: name = "BottomEnd"; break;
         }
-        return fmt::format_to(ctx.out(), "ImageAlignment({})", int(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::RasterizedImage>
+struct std::formatter<vtbackend::RasterizedImage>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::RasterizedImage const& image, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(const terminal::RasterizedImage& image, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "RasterizedImage<{}, {}, {}, {}, {}>",
-                              image.weak_from_this().use_count(),
-                              image.cellSpan(),
-                              image.resizePolicy(),
-                              image.alignmentPolicy(),
-                              image.image());
+        return formatter<std::string>::format(std::format("RasterizedImage<{}, {}, {}, {}, {}>",
+                                                          image.weak_from_this().use_count(),
+                                                          image.cellSpan(),
+                                                          image.resizePolicy(),
+                                                          image.alignmentPolicy(),
+                                                          image.imagePointer()->id().value),
+                                              ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ImageFragment>
+struct std::formatter<vtbackend::ImageFragment>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(const vtbackend::ImageFragment& fragment, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(const terminal::ImageFragment& fragment, FormatContext& ctx)
-    {
-        return fmt::format_to(
-            ctx.out(), "ImageFragment<offset={}, {}>", fragment.offset(), fragment.rasterizedImage());
+        return formatter<std::string>::format(
+            std::format("ImageFragment<offset={}, {}>",
+                        fragment.offset().line.value,
+                        fragment.offset().column.value,
+                        fragment.rasterizedImage().imagePointer()->id().value),
+            ctx);
     }
 };
-} // namespace fmt
+// }}}

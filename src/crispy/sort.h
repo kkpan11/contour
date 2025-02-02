@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/times.h>
@@ -68,9 +56,13 @@ constexpr void sort(Container& container)
     if (auto const count = std::size(container); count > 1)
         sort(
             container,
-            [](auto const& a, auto const& b) { return a < b   ? -1
-                                                      : a > b ? +1
-                                                              : 0; },
+            [](auto const& a, auto const& b) {
+                if (a < b)
+                    return -1;
+                if (a > b)
+                    return +1;
+                return 0;
+            },
             0,
             count - 1);
 }

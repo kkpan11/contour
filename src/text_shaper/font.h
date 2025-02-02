@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #define GLYPH_KEY_DEBUG 1
@@ -28,18 +16,18 @@
     #include <libunicode/width.h>
 #endif
 
-#include <fmt/format.h>
-
 #include <array>
+#include <format>
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace text
 {
 
-auto const inline LocatorLog = logstore::Category("font.locator", "Logs about font loads.");
+auto const inline locatorLog = logstore::category("font.locator", "Logs about font loads.");
 
 namespace detail
 {
@@ -88,7 +76,7 @@ constexpr double average(DPI dpi) noexcept
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
-enum class font_weight
+enum class font_weight : uint8_t
 {
     thin,
     extra_light, // aka. ultralight
@@ -125,7 +113,7 @@ constexpr std::optional<font_weight> make_font_weight(std::string_view text)
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
-enum class font_slant
+enum class font_slant : uint8_t
 {
     normal,
     italic,
@@ -144,7 +132,7 @@ constexpr std::optional<font_slant> make_font_slant(std::string_view text)
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
-enum class font_spacing
+enum class font_spacing : uint8_t
 {
     proportional,
     mono
@@ -176,19 +164,30 @@ struct font_feature
     font_feature& operator=(font_feature&&) = default;
 };
 
+struct font_fallback_none
+{
+};
+struct font_fallback_list
+{
+    std::vector<std::string> fallbackFonts;
+};
+
 struct font_description
 {
-    std::string familyName;
+    std::string familyName { "regular" };
 #if defined(_WIN32)
-    std::wstring wFamilyName;
+    std::wstring wFamilyName { L"regular" };
 #endif
 
     font_weight weight = font_weight::normal;
     font_slant slant = font_slant::normal;
     font_spacing spacing = font_spacing::proportional;
-    bool strict_spacing = false;
+    bool strictSpacing = false; // TODO Default value used in config.h while loading fonts
 
-    std::vector<font_feature> features;
+    std::vector<font_feature> features {};
+
+    // std::monostate for the case when no fallback is defined.
+    std::variant<std::monostate, font_fallback_none, font_fallback_list> fontFallback { std::monostate {} };
 
     // returns "familyName [weight] [slant]"
     [[nodiscard]] std::string toPattern() const;
@@ -200,7 +199,7 @@ struct font_description
 inline bool operator==(font_description const& a, font_description const& b)
 {
     return a.familyName == b.familyName && a.weight == b.weight && a.slant == b.slant
-           && a.spacing == b.spacing && a.strict_spacing == b.strict_spacing;
+           && a.spacing == b.spacing && a.strictSpacing == b.strictSpacing;
 }
 
 inline bool operator!=(font_description const& a, font_description const& b)
@@ -210,14 +209,15 @@ inline bool operator!=(font_description const& a, font_description const& b)
 
 struct font_metrics
 {
-    int line_height;
+    int lineHeight;
     int advance;
     int ascender;
     int descender;
-    int underline_position;
-    int underline_thickness;
+    int underlinePosition;
+    int underlineThickness;
 };
 
+// use boxed type
 struct font_size
 {
     double pt;
@@ -261,15 +261,15 @@ struct glyph_index
 // NB: Ensure this struct does NOT contain padding (or adapt strong hash creation).
 struct glyph_key
 {
-    font_size size;
+    font_size size {};
     font_key font;
-    glyph_index index;
+    glyph_index index {};
 
 #if defined(GLYPH_KEY_DEBUG)
     std::u32string text = {};
-    static constexpr inline bool debug = true;
+    static constexpr inline bool Debug = true;
 #else
-    static constexpr inline bool debug = false;
+    static constexpr inline bool Debug = false;
 #endif
 };
 
@@ -285,7 +285,7 @@ constexpr bool operator<(glyph_key const& a, glyph_key const& b) noexcept
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
-enum class render_mode
+enum class render_mode : uint8_t
 {
     bitmap, //!< bitmaps are preferred
     gray,   //!< gray-scale anti-aliasing
@@ -303,13 +303,13 @@ namespace std
 template <>
 struct hash<text::font_key>
 {
-    std::size_t operator()(text::font_key key) const noexcept { return key.value; }
+    std::size_t operator()(text::font_key key) const noexcept { return key.value; } // NOLINT
 };
 
 template <>
 struct hash<text::glyph_index>
 {
-    std::size_t operator()(text::glyph_index index) const noexcept { return index.value; }
+    std::size_t operator()(text::glyph_index index) const noexcept { return index.value; } // NOLINT
 };
 
 template <>
@@ -329,260 +329,190 @@ struct hash<text::font_description>
 {
     std::size_t operator()(text::font_description const& fd) const noexcept
     {
-        auto fnv = crispy::FNV<char>();
+        auto fnv = crispy::fnv<char>();
         return size_t(
             fnv(fnv(fnv(fnv(fnv(fd.familyName), char(fd.weight)), char(fd.slant)), char(fd.spacing)),
-                char(fd.strict_spacing)));
+                char(fd.strictSpacing)));
     }
 };
 } // namespace std
 // }}}
 
 // {{{ fmt formatter
-namespace fmt
-{
-
 template <>
-struct formatter<text::DPI>
+struct std::formatter<text::DPI>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::DPI dpi, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::DPI dpi, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}x{}", dpi.x, dpi.y);
+        return formatter<std::string>::format(std::format("{}x{}", dpi.x, dpi.y), ctx);
     }
 };
 
 template <>
-struct formatter<text::font_weight>
+struct std::formatter<text::font_weight>: formatter<string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_weight value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_weight value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case text::font_weight::thin: return fmt::format_to(ctx.out(), "Thin");
-            case text::font_weight::extra_light: return fmt::format_to(ctx.out(), "ExtraLight");
-            case text::font_weight::light: return fmt::format_to(ctx.out(), "Light");
-            case text::font_weight::demilight: return fmt::format_to(ctx.out(), "DemiLight");
-            case text::font_weight::book: return fmt::format_to(ctx.out(), "Book");
-            case text::font_weight::normal: return fmt::format_to(ctx.out(), "Regular");
-            case text::font_weight::medium: return fmt::format_to(ctx.out(), "Medium");
-            case text::font_weight::demibold: return fmt::format_to(ctx.out(), "DemiBold");
-            case text::font_weight::bold: return fmt::format_to(ctx.out(), "Bold");
-            case text::font_weight::extra_bold: return fmt::format_to(ctx.out(), "ExtraBold");
-            case text::font_weight::black: return fmt::format_to(ctx.out(), "Black");
-            case text::font_weight::extra_black: return fmt::format_to(ctx.out(), "ExtraBlack");
+            case text::font_weight::thin: name = "Thin"; break;
+            case text::font_weight::extra_light: name = "ExtraLight"; break;
+            case text::font_weight::light: name = "Light"; break;
+            case text::font_weight::demilight: name = "DemiLight"; break;
+            case text::font_weight::book: name = "Book"; break;
+            case text::font_weight::normal: name = "Regular"; break;
+            case text::font_weight::medium: name = "Medium"; break;
+            case text::font_weight::demibold: name = "DemiBold"; break;
+            case text::font_weight::bold: name = "Bold"; break;
+            case text::font_weight::extra_bold: name = "ExtraBold"; break;
+            case text::font_weight::black: name = "Black"; break;
+            case text::font_weight::extra_black: name = "ExtraBlack"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<text::font_slant>
+struct std::formatter<text::font_slant>: formatter<string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_slant value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_slant value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case text::font_slant::normal: return fmt::format_to(ctx.out(), "Roman");
-            case text::font_slant::italic: return fmt::format_to(ctx.out(), "Italic");
-            case text::font_slant::oblique: return fmt::format_to(ctx.out(), "Oblique");
+            case text::font_slant::normal: name = "Normal"; break;
+            case text::font_slant::italic: name = "Italic"; break;
+            case text::font_slant::oblique: name = "Oblique"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<text::font_spacing>
+struct std::formatter<text::font_spacing>: formatter<string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_spacing value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_spacing value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case text::font_spacing::proportional: return fmt::format_to(ctx.out(), "Proportional");
-            case text::font_spacing::mono: return fmt::format_to(ctx.out(), "Monospace");
+            case text::font_spacing::proportional: name = "Proportional"; break;
+            case text::font_spacing::mono: name = "Monospace"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", unsigned(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<text::font_description>
+struct std::formatter<text::font_description>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_description const& desc, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_description const& desc, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "(family={} weight={} slant={} spacing={}, strict_spacing={})",
-                              desc.familyName,
-                              desc.weight,
-                              desc.slant,
-                              desc.spacing,
-                              desc.strict_spacing ? "yes" : "no");
+        return formatter<std::string>::format(
+            std::format("(family={} weight={} slant={} spacing={}, strict_spacing={})",
+                        desc.familyName,
+                        desc.weight,
+                        desc.slant,
+                        desc.spacing,
+                        desc.strictSpacing ? "yes" : "no"),
+            ctx);
     }
 };
 
 template <>
-struct formatter<text::font_metrics>
+struct std::formatter<text::font_metrics>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_metrics const& metrics, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_metrics const& metrics, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "({}, {}, {}, {}, {}, {})",
-                              metrics.line_height,
-                              metrics.advance,
-                              metrics.ascender,
-                              metrics.descender,
-                              metrics.underline_position,
-                              metrics.underline_thickness);
+        return formatter<std::string>::format(std::format("({}, {}, {}, {}, {}, {})",
+                                                          metrics.lineHeight,
+                                                          metrics.advance,
+                                                          metrics.ascender,
+                                                          metrics.descender,
+                                                          metrics.underlinePosition,
+                                                          metrics.underlineThickness),
+                                              ctx);
     }
 };
 
 template <>
-struct formatter<text::font_size>
+struct std::formatter<text::font_size>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_size size, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_size size, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}pt", size.pt);
+        return formatter<std::string>::format(std::format("{}pt", size.pt), ctx);
     }
 };
 
 template <>
-struct formatter<text::font_key>
+struct std::formatter<text::font_key>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_key key, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_key key, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}", key.value);
+        return formatter<std::string>::format(std::format("{}", key.value), ctx);
     }
 };
 
 template <>
-struct formatter<text::glyph_index>
+struct std::formatter<text::glyph_index>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::glyph_index value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::glyph_index value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}", value.value);
+        return formatter<std::string>::format(std::format("{}", value.value), ctx);
     }
 };
 
 template <>
-struct formatter<text::glyph_key>
+struct std::formatter<text::glyph_key>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
-    {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::glyph_key const& key, FormatContext& ctx)
+    auto format(text::glyph_key const& key, auto& ctx) const
     {
 #if defined(GLYPH_KEY_DEBUG)
-        return fmt::format_to(
-            ctx.out(),
-            "({}, {}:{}, \"{}\")",
-            key.size,
-            key.font,
-            key.index,
-            unicode::convert_to<char>(std::u32string_view(key.text.data(), key.text.size())));
+        return formatter<std::string>::format(
+            std::format("({}, {}:{}, \"{}\")",
+                        key.size,
+                        key.font,
+                        key.index,
+                        unicode::convert_to<char>(std::u32string_view(key.text.data(), key.text.size()))),
+            ctx);
 #else
-        return fmt::format_to(ctx.out(), "({}, {}, {})", key.font, key.size, key.index);
+        return formatter<std::string>::format(std::format("({}, {}, {})", key.font, key.size, key.index),
+                                              ctx);
 #endif
     }
 };
 
 template <>
-struct formatter<text::font_feature>
+struct std::formatter<text::font_feature>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::font_feature value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::font_feature value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "{}{}{}{}{}",
-                              value.enabled ? '+' : '-',
-                              value.name[0],
-                              value.name[1],
-                              value.name[2],
-                              value.name[3]);
+        return formatter<std::string>::format(std::format("{}{}{}{}{}",
+                                                          value.enabled ? '+' : '-',
+                                                          value.name[0],
+                                                          value.name[1],
+                                                          value.name[2],
+                                                          value.name[3]),
+                                              ctx);
     }
 };
 
 template <>
-struct formatter<text::render_mode>
+struct std::formatter<text::render_mode>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::render_mode value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::render_mode value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case text::render_mode::bitmap: return fmt::format_to(ctx.out(), "Bitmap");
-            case text::render_mode::gray: return fmt::format_to(ctx.out(), "Gray");
-            case text::render_mode::light: return fmt::format_to(ctx.out(), "Light");
-            case text::render_mode::lcd: return fmt::format_to(ctx.out(), "LCD");
-            case text::render_mode::color: return fmt::format_to(ctx.out(), "Color");
+            case text::render_mode::bitmap: name = "Bitmap"; break;
+            case text::render_mode::gray: name = "Gray"; break;
+            case text::render_mode::light: name = "Light"; break;
+            case text::render_mode::lcd: name = "LCD"; break;
+            case text::render_mode::color: name = "Color"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", unsigned(value));
+        return std::formatter<string_view>::format(name, ctx);
     }
 };
-} // namespace fmt
 // }}}

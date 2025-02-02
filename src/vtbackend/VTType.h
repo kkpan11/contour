@@ -1,25 +1,12 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/assert.h>
 
-#include <fmt/format.h>
-
+#include <format>
 #include <string>
 
-namespace terminal
+namespace vtbackend
 {
 
 /**
@@ -29,7 +16,7 @@ namespace terminal
  *
  * The integer representational values match the one for DA2's first response parameter.
  */
-enum class VTType
+enum class VTType : uint8_t
 {
     VT100 = 0,
     VT220 = 1,
@@ -43,7 +30,7 @@ enum class VTType
     VT525 = 65,
 };
 
-enum class VTExtension
+enum class VTExtension : uint8_t
 {
     None,
     Unknown,
@@ -88,56 +75,45 @@ std::string to_string(DeviceAttributes v);
 //! Generates a parameter list that can be used to generate the CSI response.
 std::string to_params(DeviceAttributes v);
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
+// {{{ fmtlib support
 template <>
-struct formatter<terminal::VTType>
+struct std::formatter<vtbackend::VTType>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(const vtbackend::VTType id, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(const terminal::VTType id, FormatContext& ctx)
-    {
+        string_view name;
         switch (id)
         {
-            case terminal::VTType::VT100: return fmt::format_to(ctx.out(), "VT100");
-            case terminal::VTType::VT220: return fmt::format_to(ctx.out(), "VT220");
-            case terminal::VTType::VT240: return fmt::format_to(ctx.out(), "VT240");
-            case terminal::VTType::VT320: return fmt::format_to(ctx.out(), "VT320");
-            case terminal::VTType::VT330: return fmt::format_to(ctx.out(), "VT330");
-            case terminal::VTType::VT340: return fmt::format_to(ctx.out(), "VT340");
-            case terminal::VTType::VT420: return fmt::format_to(ctx.out(), "VT420");
-            case terminal::VTType::VT510: return fmt::format_to(ctx.out(), "VT510");
-            case terminal::VTType::VT520: return fmt::format_to(ctx.out(), "VT520");
-            case terminal::VTType::VT525: return fmt::format_to(ctx.out(), "VT525");
+            case vtbackend::VTType::VT100: name = "VT100"; break;
+            case vtbackend::VTType::VT220: name = "VT220"; break;
+            case vtbackend::VTType::VT240: name = "VT240"; break;
+            case vtbackend::VTType::VT320: name = "VT320"; break;
+            case vtbackend::VTType::VT330: name = "VT330"; break;
+            case vtbackend::VTType::VT340: name = "VT340"; break;
+            case vtbackend::VTType::VT420: name = "VT420"; break;
+            case vtbackend::VTType::VT510: name = "VT510"; break;
+            case vtbackend::VTType::VT520: name = "VT520"; break;
+            case vtbackend::VTType::VT525: name = "VT525"; break;
         }
-        crispy::unreachable();
+        return formatter<string_view>::format(name, ctx);
     }
 };
 template <>
-struct formatter<terminal::VTExtension>
+struct std::formatter<vtbackend::VTExtension>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(const vtbackend::VTExtension id, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(const terminal::VTExtension id, FormatContext& ctx)
-    {
+        string_view name;
         switch (id)
         {
-            case terminal::VTExtension::None: return fmt::format_to(ctx.out(), "none");
-            case terminal::VTExtension::Unknown: return fmt::format_to(ctx.out(), "unknown");
-            case terminal::VTExtension::XTerm: return fmt::format_to(ctx.out(), "XTerm");
-            case terminal::VTExtension::Contour: return fmt::format_to(ctx.out(), "Contour");
+            case vtbackend::VTExtension::None: name = "none"; break;
+            case vtbackend::VTExtension::Unknown: name = "unknown"; break;
+            case vtbackend::VTExtension::XTerm: name = "XTerm"; break;
+            case vtbackend::VTExtension::Contour: name = "Contour"; break;
         }
-        crispy::unreachable();
+        return formatter<string_view>::format(name, ctx);
     }
 };
-} // namespace fmt
+// }}}

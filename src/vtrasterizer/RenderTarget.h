@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Color.h>
@@ -22,20 +10,19 @@
 #include <vtrasterizer/shared_defines.h>
 
 #include <crispy/size.h>
-#include <crispy/stdfs.h>
 
-#include <array>
-#include <memory>
 #include <optional>
 #include <vector>
 
-namespace terminal
+namespace vtbackend
 {
 struct BackgroundImage;
 }
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
+
+using ImageSize = vtbackend::ImageSize;
 
 /**
  * Contains the read-out of the state of an texture atlas.
@@ -100,10 +87,10 @@ struct RenderTileAttributes
 class RenderTarget
 {
   public:
-    using RGBAColor = terminal::RGBAColor;
-    using Width = crispy::Width;
-    using Height = crispy::Height;
-    using TextureAtlas = terminal::rasterizer::atlas::TextureAtlas<RenderTileAttributes>;
+    using RGBAColor = vtbackend::RGBAColor;
+    using Width = vtbackend::Width;
+    using Height = vtbackend::Height;
+    using TextureAtlas = atlas::TextureAtlas<RenderTileAttributes>;
 
     virtual ~RenderTarget() = default;
 
@@ -115,9 +102,6 @@ class RenderTarget
 
     virtual atlas::AtlasBackend& textureScheduler() = 0;
 
-    virtual void setBackgroundImage(
-        std::shared_ptr<terminal::BackgroundImage const> const& backgroundImage) = 0;
-
     /// Fills a rectangular area with the given solid color.
     virtual void renderRectangle(int x, int y, Width, Height, RGBAColor color) = 0;
 
@@ -127,9 +111,6 @@ class RenderTarget
     /// Schedules taking a screenshot of the current scene and forwards it to the given callback.
     virtual void scheduleScreenshot(ScreenshotCallback callback) = 0;
 
-    /// Clears the target surface with the given fill color.
-    virtual void clear(terminal::RGBAColor fillColor) = 0;
-
     /// Executes all previously scheduled render commands.
     virtual void execute(std::chrono::steady_clock::time_point now) = 0;
 
@@ -137,7 +118,7 @@ class RenderTarget
     virtual void clearCache() = 0;
 
     /// Reads out the given texture atlas.
-    virtual std::optional<terminal::rasterizer::AtlasTextureScreenshot> readAtlas() = 0;
+    virtual std::optional<vtrasterizer::AtlasTextureScreenshot> readAtlas() = 0;
 
     virtual void inspect(std::ostream& output) const = 0;
 };
@@ -166,7 +147,7 @@ class Renderable
     [[nodiscard]] TextureAtlas::TileCreateData createTileData(atlas::TileLocation tileLocation,
                                                               std::vector<uint8_t> bitmap,
                                                               atlas::Format bitmapFormat,
-                                                              ImageSize bitmapSize,
+                                                              vtbackend::ImageSize bitmapSize,
                                                               RenderTileAttributes::X x,
                                                               RenderTileAttributes::Y y,
                                                               uint32_t fragmentShaderSelector);
@@ -174,8 +155,8 @@ class Renderable
     [[nodiscard]] TextureAtlas::TileCreateData createTileData(atlas::TileLocation tileLocation,
                                                               std::vector<uint8_t> bitmap,
                                                               atlas::Format bitmapFormat,
-                                                              ImageSize bitmapSize,
-                                                              ImageSize renderBitmapSize,
+                                                              vtbackend::ImageSize bitmapSize,
+                                                              vtbackend::ImageSize renderBitmapSize,
                                                               RenderTileAttributes::X x,
                                                               RenderTileAttributes::Y y,
                                                               uint32_t fragmentShaderSelector);
@@ -188,12 +169,12 @@ class Renderable
     [[nodiscard]] static atlas::RenderTile createRenderTile(
         atlas::RenderTile::X x,
         atlas::RenderTile::Y y,
-        RGBAColor color,
+        vtbackend::RGBAColor color,
         Renderable::AtlasTileAttributes const& attributes);
 
     void renderTile(atlas::RenderTile::X x,
                     atlas::RenderTile::Y y,
-                    RGBAColor color,
+                    vtbackend::RGBAColor color,
                     Renderable::AtlasTileAttributes const& attributes);
 
     [[nodiscard]] constexpr bool renderTargetAvailable() const noexcept { return _renderTarget; }
@@ -225,7 +206,7 @@ class Renderable
 inline Renderable::TextureAtlas::TileCreateData Renderable::createTileData(atlas::TileLocation tileLocation,
                                                                            std::vector<uint8_t> bitmap,
                                                                            atlas::Format bitmapFormat,
-                                                                           ImageSize bitmapSize,
+                                                                           vtbackend::ImageSize bitmapSize,
                                                                            RenderTileAttributes::X x,
                                                                            RenderTileAttributes::Y y,
                                                                            uint32_t fragmentShaderSelector)
@@ -234,43 +215,29 @@ inline Renderable::TextureAtlas::TileCreateData Renderable::createTileData(atlas
         tileLocation, std::move(bitmap), bitmapFormat, bitmapSize, bitmapSize, x, y, fragmentShaderSelector);
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer
 
 // {{{ fmt
-namespace fmt
-{
 template <>
-struct formatter<terminal::rasterizer::RenderTileAttributes>
+struct std::formatter<vtrasterizer::RenderTileAttributes>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::RenderTileAttributes value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::RenderTileAttributes value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "tile +{}x +{}y", value.x.value, value.y.value);
+        return std::formatter<std::string>::format(
+            std::format("tile +{}x +{}y", value.x.value, value.y.value), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::rasterizer::atlas::TileAttributes<terminal::rasterizer::RenderTileAttributes>>
+struct std::formatter<vtrasterizer::atlas::TileAttributes<vtrasterizer::RenderTileAttributes>>:
+    std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::atlas::TileAttributes<vtrasterizer::RenderTileAttributes> const& value,
+                auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(
-        terminal::rasterizer::atlas::TileAttributes<terminal::rasterizer::RenderTileAttributes> const& value,
-        FormatContext& ctx)
-    {
-        return fmt::format_to(
-            ctx.out(), "(location {}; bitmap {}; {})", value.location, value.bitmapSize, value.metadata);
+        return formatter<std::string>::format(
+            std::format("(location {}; bitmap {}; {})", value.location, value.bitmapSize, value.metadata),
+            ctx);
     }
 };
-
-} // namespace fmt
 // }}}

@@ -1,38 +1,25 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/MockTerm.h>
 #include <vtbackend/Screen.h>
 #include <vtbackend/Selector.h>
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
-using crispy::Size;
+using crispy::size;
 using namespace std;
 using namespace std::placeholders;
-using namespace terminal;
+using namespace vtbackend;
 
 namespace
 {
 
 template <typename T>
-struct TestSelectionHelper: public terminal::SelectionHelper
+struct TestSelectionHelper: public vtbackend::SelectionHelper
 {
     Screen<T>* screen;
     explicit TestSelectionHelper(Screen<T>& self): screen { &self } {}
 
     [[nodiscard]] PageSize pageSize() const noexcept override { return screen->pageSize(); }
-    [[nodiscard]] bool wordDelimited(CellLocation /*pos*/) const noexcept override { return true; } // TODO
     [[nodiscard]] bool wrappedLine(LineOffset line) const noexcept override
     {
         return screen->isLineWrapped(line);
@@ -59,13 +46,13 @@ namespace
 template <typename T>
 [[maybe_unused]] void logScreenTextAlways(Screen<T> const& screen, string const& headline = "")
 {
-    fmt::print("{}: ZI={} cursor={} HM={}..{}\n",
-               headline.empty() ? "screen dump"s : headline,
-               screen.grid().zero_index(),
-               screen.realCursorPosition(),
-               screen.margin().horizontal.from,
-               screen.margin().horizontal.to);
-    fmt::print("{}\n", dumpGrid(screen.grid()));
+    std::cout << std::format("{}: ZI={} cursor={} HM={}..{}\n",
+                             headline.empty() ? "screen dump"s : headline,
+                             screen.grid().zero_index(),
+                             screen.realCursorPosition(),
+                             screen.margin().horizontal.from,
+                             screen.margin().horizontal.to);
+    std::cout << std::format("{}\n", dumpGrid(screen.grid()));
 }
 
 template <typename T>
@@ -73,25 +60,25 @@ struct TextSelection
 {
     Screen<T> const* screen;
     string text;
-    ColumnOffset lastColumn_ = ColumnOffset(0);
+    ColumnOffset lastColumn = ColumnOffset(0);
 
     explicit TextSelection(Screen<T> const& s): screen { &s } {}
 
     void operator()(CellLocation const& pos)
     {
         auto const& cell = screen->at(pos);
-        text += pos.column < lastColumn_ ? "\n" : "";
+        text += pos.column < lastColumn ? "\n" : "";
         text += cell.toUtf8();
-        lastColumn_ = pos.column;
+        lastColumn = pos.column;
     }
 };
 template <typename T>
 TextSelection(Screen<T> const&) -> TextSelection<T>;
 } // namespace
 
+// NOLINTBEGIN(misc-const-correctness,readability-function-cognitive-complexity)
 TEST_CASE("Selector.Linear", "[selector]")
 {
-    auto screenEvents = ScreenEvents {};
     auto term = MockTerm(PageSize { LineCount(3), ColumnCount(11) }, LineCount(5));
     auto& screen = term.terminal.primaryScreen();
     auto selectionHelper = TestSelectionHelper(screen);
@@ -107,7 +94,7 @@ TEST_CASE("Selector.Linear", "[selector]")
 
     SECTION("single-cell")
     { // "b"
-        auto const pos = CellLocation { LineOffset(1), ColumnOffset(1) };
+        auto const pos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
         auto selector = LinearSelection(selectionHelper, pos, []() {});
         (void) selector.extend(pos);
         selector.complete();
@@ -127,9 +114,9 @@ TEST_CASE("Selector.Linear", "[selector]")
 
     SECTION("forward single-line")
     { // "b,c"
-        auto const pos = CellLocation { LineOffset(1), ColumnOffset(1) };
+        auto const pos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
         auto selector = LinearSelection(selectionHelper, pos, []() {});
-        (void) selector.extend(CellLocation { LineOffset(1), ColumnOffset(3) });
+        (void) selector.extend(CellLocation { .line = LineOffset(1), .column = ColumnOffset(3) });
         selector.complete();
 
         vector<Selection::Range> const selection = selector.ranges();
@@ -147,9 +134,9 @@ TEST_CASE("Selector.Linear", "[selector]")
 
     SECTION("forward multi-line")
     { // "b,cdefg,hi\n1234"
-        auto const pos = CellLocation { LineOffset(1), ColumnOffset(1) };
+        auto const pos = CellLocation { .line = LineOffset(1), .column = ColumnOffset(1) };
         auto selector = LinearSelection(selectionHelper, pos, []() {});
-        (void) selector.extend(CellLocation { LineOffset(2), ColumnOffset(3) });
+        (void) selector.extend(CellLocation { .line = LineOffset(2), .column = ColumnOffset(3) });
         selector.complete();
 
         vector<Selection::Range> const selection = selector.ranges();
@@ -184,9 +171,9 @@ TEST_CASE("Selector.Linear", "[selector]")
          2 | "bar"
         */
 
-        auto selector =
-            LinearSelection(selectionHelper, CellLocation { LineOffset(-2), ColumnOffset(6) }, []() {});
-        (void) selector.extend(CellLocation { LineOffset(-1), ColumnOffset(2) });
+        auto selector = LinearSelection(
+            selectionHelper, CellLocation { .line = LineOffset(-2), .column = ColumnOffset(6) }, []() {});
+        (void) selector.extend(CellLocation { .line = LineOffset(-1), .column = ColumnOffset(2) });
         selector.complete();
 
         vector<Selection::Range> const selection = selector.ranges();
@@ -221,9 +208,9 @@ TEST_CASE("Selector.Linear", "[selector]")
          2 | ""
         */
 
-        auto selector =
-            LinearSelection(selectionHelper, CellLocation { LineOffset(-2), ColumnOffset(8) }, []() {});
-        (void) selector.extend(CellLocation { LineOffset(0), ColumnOffset(1) });
+        auto selector = LinearSelection(
+            selectionHelper, CellLocation { .line = LineOffset(-2), .column = ColumnOffset(8) }, []() {});
+        (void) selector.extend(CellLocation { .line = LineOffset(0), .column = ColumnOffset(1) });
         selector.complete();
 
         vector<Selection::Range> const selection = selector.ranges();
@@ -267,3 +254,4 @@ TEST_CASE("Selector.Rectangular", "[selector]")
 {
     // TODO
 }
+// NOLINTEND(misc-const-correctness,readability-function-cognitive-complexity)

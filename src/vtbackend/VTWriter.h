@@ -1,32 +1,20 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Color.h>
 #include <vtbackend/Line.h>
+#include <vtbackend/cell/CellConcept.h>
 #include <vtbackend/primitives.h>
 
-#include <fmt/format.h>
+#include <libunicode/convert.h>
 
+#include <format>
 #include <functional>
 #include <ostream>
 #include <sstream>
 #include <vector>
 
-#include <libunicode/convert.h>
-
-namespace terminal
+namespace vtbackend
 {
 
 // Serializes text and SGR attributes into a valid VT stream.
@@ -35,7 +23,7 @@ class VTWriter
   public:
     using Writer = std::function<void(char const*, size_t)>;
 
-    static constexpr inline auto maxParameterCount = 16;
+    static constexpr inline auto MaxParameterCount = 16;
 
     explicit VTWriter(Writer writer);
     explicit VTWriter(std::ostream& output);
@@ -44,11 +32,11 @@ class VTWriter
     void crlf();
 
     // Writes the given Line<> to the output stream without the trailing newline.
-    template <typename Cell>
+    template <CellConcept Cell>
     void write(Line<Cell> const& line);
 
     template <typename... T>
-    void write(fmt::format_string<T...> fmt, T&&... args);
+    void write(std::format_string<T...> fmt, T const&... args);
     void write(std::string_view s);
     void write(char32_t v);
 
@@ -64,7 +52,7 @@ class VTWriter
     template <typename... Args>
     void sgrAdd(unsigned n, Args... values)
     {
-        if (_sgr.size() + sizeof...(values) > maxParameterCount)
+        if (_sgr.size() + sizeof...(values) > MaxParameterCount)
             sgrFlush();
 
         sgrAddExplicit(n);
@@ -83,10 +71,14 @@ class VTWriter
     Color _currentBackgroundColor = DefaultColor();
 };
 
-template <typename... T>
-inline void VTWriter::write(fmt::format_string<T...> fmt, T&&... args)
+template <typename... Ts>
+inline void VTWriter::write(std::format_string<Ts...> fmt, Ts const&... args)
 {
-    write(fmt::vformat(fmt, fmt::make_format_args(args...)));
+#if defined(__APPLE__)
+    write(std::vformat(fmt, std::make_format_args(args...)));
+#else
+    write(std::vformat(fmt, std::make_format_args(std::forward<Ts>(args)...)));
+#endif
 }
 
 inline void VTWriter::crlf()
@@ -94,4 +86,4 @@ inline void VTWriter::crlf()
     write("\r\n");
 }
 
-} // namespace terminal
+} // namespace vtbackend

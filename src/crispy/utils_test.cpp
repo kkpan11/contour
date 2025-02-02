@@ -1,19 +1,7 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <crispy/utils.h>
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 using std::string;
 using std::string_view;
@@ -125,25 +113,25 @@ TEST_CASE("fromHexString")
     CHECK(!crispy::fromHexString("abc"sv));
     CHECK(!crispy::fromHexString("GX"sv));
 
-    CHECK(crispy::fromHexString(""sv).value() == ""sv);
+    CHECK(crispy::fromHexString(""sv).value().empty());
     CHECK(crispy::fromHexString("61"sv).value() == "a"sv);
     CHECK(crispy::fromHexString("4162"sv).value() == "Ab"sv);
 }
 
-struct VariableCollector
+struct variable_collector
 {
-    auto operator()(string_view name) const { return fmt::format("({})", name); }
+    auto operator()(string_view name) const { return std::format("({})", name); }
 };
 
 TEST_CASE("replaceVariables")
 {
     // clang-format off
-    CHECK(""sv == crispy::replaceVariables("", VariableCollector()));
-    CHECK("()"sv == crispy::replaceVariables("${}", VariableCollector()));
-    CHECK("(Hello)"sv == crispy::replaceVariables("${Hello}", VariableCollector()));
-    CHECK("(Hello) World"sv == crispy::replaceVariables("${Hello} World", VariableCollector()));
-    CHECK("Hello, (World)!"sv == crispy::replaceVariables("Hello, ${World}!", VariableCollector()));
-    CHECK("(one), (two), (three)"sv == crispy::replaceVariables("${one}, ${two}, ${three}", VariableCollector()));
+    CHECK(crispy::replaceVariables("", variable_collector()).empty());
+    CHECK("()"sv == crispy::replaceVariables("${}", variable_collector()));
+    CHECK("(Hello)"sv == crispy::replaceVariables("${Hello}", variable_collector()));
+    CHECK("(Hello) World"sv == crispy::replaceVariables("${Hello} World", variable_collector()));
+    CHECK("Hello, (World)!"sv == crispy::replaceVariables("Hello, ${World}!", variable_collector()));
+    CHECK("(one), (two), (three)"sv == crispy::replaceVariables("${one}, ${two}, ${three}", variable_collector()));
     // clang-format on
 }
 

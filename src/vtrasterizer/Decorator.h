@@ -1,32 +1,19 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <fmt/format.h>
-
 #include <array>
+#include <format>
 #include <limits>
 #include <optional>
 #include <string>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
-/// Dectorator, to decorate a grid cell, eventually containing a character
+/// Decorator, to decorate a grid cell, eventually containing a character
 ///
 /// It should be possible to render multiple decoration onto the same coordinates.
-enum class Decorator
+enum class Decorator : uint8_t
 {
     /// Draws an underline
     Underline,
@@ -57,7 +44,7 @@ std::optional<Decorator> to_decorator(std::string const& value) noexcept;
 inline std::optional<Decorator> to_decorator(std::string const& value) noexcept
 {
     using std::pair;
-    auto constexpr mappings = std::array {
+    auto constexpr Mappings = std::array {
         pair { "underline", Decorator::Underline },
         pair { "dotted-underline", Decorator::DottedUnderline },
         pair { "double-underline", Decorator::DoubleUnderline },
@@ -69,7 +56,7 @@ inline std::optional<Decorator> to_decorator(std::string const& value) noexcept
         pair { "encircle", Decorator::Encircle },
     };
 
-    for (auto const& mapping: mappings)
+    for (auto const& mapping: Mappings)
         if (mapping.first == value)
             return { mapping.second };
 
@@ -77,14 +64,12 @@ inline std::optional<Decorator> to_decorator(std::string const& value) noexcept
 }
 // }}}
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer
 
-namespace std
-{
 template <>
-struct numeric_limits<terminal::rasterizer::Decorator>
+struct std::numeric_limits<vtrasterizer::Decorator>
 {
-    using Decorator = terminal::rasterizer::Decorator;
+    using Decorator = vtrasterizer::Decorator;
     constexpr static Decorator min() noexcept { return Decorator::Underline; }
     constexpr static Decorator max() noexcept { return Decorator::Encircle; }
     constexpr static size_t count() noexcept
@@ -92,26 +77,16 @@ struct numeric_limits<terminal::rasterizer::Decorator>
         return static_cast<size_t>(max()) - static_cast<size_t>(min()) + 1;
     }
 };
-} // namespace std
 
-namespace fmt
-{
 template <>
-struct formatter<terminal::rasterizer::Decorator>
+struct std::formatter<vtrasterizer::Decorator>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::Decorator value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::Decorator value, FormatContext& ctx)
-    {
-        auto constexpr mappings = std::array {
+        auto constexpr Mappings = std::array {
             "underline", "double-underline", "curly-underline", "dotted-underline", "dashed-underline",
             "overline",  "crossed-out",      "framed",          "encircle",
         };
-        return fmt::format_to(ctx.out(), "{}", mappings.at(static_cast<size_t>(value)));
+        return formatter<std::string_view>::format(Mappings.at(static_cast<size_t>(value)), ctx);
     }
 };
-} // namespace fmt

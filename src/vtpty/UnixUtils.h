@@ -1,18 +1,9 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <gsl/pointers>
+
+#include <array>
 #include <cerrno>
 
 #if defined(__APPLE__)
@@ -24,14 +15,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-namespace terminal::detail
+namespace vtpty::util
 {
 
 termios getTerminalSettings(int fd) noexcept;
 termios constructTerminalSettings(int fd) noexcept;
 bool applyTerminalSettings(int fd, termios const& tio);
 bool setFileFlags(int fd, int flags) noexcept;
-void saveClose(int* fd) noexcept;
+void saveClose(gsl::not_null<int*> fd) noexcept;
 void saveDup2(int a, int b) noexcept;
 
 // {{{ impl
@@ -81,9 +72,14 @@ inline bool setFileFlags(int fd, int flags) noexcept
     return true;
 }
 
-inline void saveClose(int* fd) noexcept
+inline void setFileBlocking(int fd, bool blocking) noexcept
 {
-    if (fd && *fd != -1)
+    setFileFlags(fd, blocking ? 0 : O_NONBLOCK);
+}
+
+inline void saveClose(gsl::not_null<int*> fd) noexcept
+{
+    if (*fd != -1)
     {
         ::close(*fd);
         *fd = -1;
@@ -97,4 +93,70 @@ inline void saveDup2(int a, int b) noexcept
 }
 // }}}
 
-} // namespace terminal::detail
+} // namespace vtpty::util
+
+namespace vtpty
+{
+
+struct UnixPipe
+{
+    std::array<int, 2> pfd;
+
+    explicit UnixPipe(unsigned flags = 0);
+    UnixPipe(UnixPipe&&) noexcept;
+    UnixPipe& operator=(UnixPipe&&) noexcept;
+    UnixPipe(UnixPipe const&) = delete;
+    UnixPipe& operator=(UnixPipe const&) = delete;
+    ~UnixPipe();
+
+    [[nodiscard]] bool good() const noexcept { return pfd[0] != -1 && pfd[1] != -1; }
+
+    [[nodiscard]] int reader() const noexcept { return pfd[0]; }
+    [[nodiscard]] int writer() const noexcept { return pfd[1]; }
+
+    void closeReader() noexcept;
+    void closeWriter() noexcept;
+
+    void close();
+};
+
+// {{{ UnixPipe
+inline UnixPipe::UnixPipe(UnixPipe&& v) noexcept: pfd { v.pfd[0], v.pfd[1] }
+{
+    v.pfd[0] = -1;
+    v.pfd[1] = -1;
+}
+
+inline UnixPipe& UnixPipe::operator=(UnixPipe&& v) noexcept
+{
+    close();
+    pfd[0] = v.pfd[0];
+    pfd[1] = v.pfd[1];
+    v.pfd[0] = -1;
+    v.pfd[1] = -1;
+    return *this;
+}
+
+inline UnixPipe::~UnixPipe()
+{
+    close();
+}
+
+inline void UnixPipe::close()
+{
+    closeReader();
+    closeWriter();
+}
+
+inline void UnixPipe::closeReader() noexcept
+{
+    util::saveClose(&pfd[0]); // NOLINT(readability-container-data-pointer)
+}
+
+inline void UnixPipe::closeWriter() noexcept
+{
+    util::saveClose(&pfd[1]);
+}
+// }}}
+
+} // namespace vtpty

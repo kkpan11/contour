@@ -1,36 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 #include <vtparser/Parser.h>
-
-#include <crispy/assert.h>
-#include <crispy/escape.h>
-#include <crispy/logstore.h>
-#include <crispy/utils.h>
-
-#include <array>
-#include <cctype>
-#include <string_view>
-#include <tuple>
 
 #include <libunicode/utf8.h>
 
-namespace terminal::parser
-{
+#include <array>
+#include <cassert>
+#include <string_view>
+#include <tuple>
 
-auto const inline VTTraceParserLog =
-    logstore::Category("vt.trace.parser", "Logs terminal parser instruction trace.");
+namespace vtparser
+{
 
 namespace
 {
@@ -154,6 +134,7 @@ constexpr ParserTable ParserTable::get() // {{{
     t.event(State::Ground, Action::Print, Range { 0x20_b, 0x7F_b });
     t.event(State::Ground, Action::Print, Range { 0xA0_b, 0xFF_b });
     t.event(State::Ground, Action::Print, UnicodeRange);
+    t.exit(State::Ground, Action::PrintEnd);
 
     // EscapeIntermediate
     t.event(State::EscapeIntermediate,
@@ -337,7 +318,7 @@ constexpr ParserTable ParserTable::get() // {{{
     return t;
 } // }}}
 
-template <typename EventListener, bool TraceStateChanges>
+template <ParserEventsConcept EventListener, bool TraceStateChanges>
 void Parser<EventListener, TraceStateChanges>::parseFragment(gsl::span<char const> data)
 {
     const auto* input = data.data();
@@ -360,31 +341,31 @@ void Parser<EventListener, TraceStateChanges>::parseFragment(gsl::span<char cons
     }
 }
 
-template <typename EventListener, bool TraceStateChanges>
+template <ParserEventsConcept EventListener, bool TraceStateChanges>
 void Parser<EventListener, TraceStateChanges>::processOnceViaStateMachine(uint8_t ch)
 {
     auto const s = static_cast<size_t>(_state);
-    ParserTable static constexpr table = ParserTable::get();
+    ParserTable static constexpr Table = ParserTable::get();
 
-    if (auto const t = table.transitions[s][static_cast<uint8_t>(ch)]; t != State::Undefined)
+    if (auto const t = Table.transitions[s][static_cast<uint8_t>(ch)]; t != State::Undefined)
     {
-        // fmt::print("VTParser: Transitioning from {} to {}", _state, t);
-        handle(ActionClass::Leave, table.exitEvents[s], ch);
-        handle(ActionClass::Transition, table.events[s][static_cast<size_t>(ch)], ch);
+        // std::cout << std::format("VTParser: Transitioning from {} to {}", _state, t);
+        handle(ActionClass::Leave, Table.exitEvents[s], ch);
+        handle(ActionClass::Transition, Table.events[s][static_cast<size_t>(ch)], ch);
         _state = t;
-        handle(ActionClass::Enter, table.entryEvents[static_cast<size_t>(t)], ch);
+        handle(ActionClass::Enter, Table.entryEvents[static_cast<size_t>(t)], ch);
     }
-    else if (Action const a = table.events[s][ch]; a != Action::Undefined)
+    else if (Action const a = Table.events[s][ch]; a != Action::Undefined)
         handle(ActionClass::Event, a, ch);
     else
         _eventListener.error("Parser error: Unknown action for state/input pair.");
 }
 
-template <typename EventListener, bool TraceStateChanges>
+template <ParserEventsConcept EventListener, bool TraceStateChanges>
 auto Parser<EventListener, TraceStateChanges>::parseBulkText(char const* begin, char const* end) noexcept
     -> std::tuple<ProcessKind, size_t>
 {
-    const auto* input = begin;
+    auto const* input = begin;
     if (_state != State::Ground)
         return { ProcessKind::FallbackToFSM, 0 };
 
@@ -392,10 +373,11 @@ auto Parser<EventListener, TraceStateChanges>::parseBulkText(char const* begin, 
     if (!maxCharCount)
         return { ProcessKind::FallbackToFSM, 0 };
 
+    _scanState.next = nullptr;
     auto const chunk = std::string_view(input, static_cast<size_t>(std::distance(input, end)));
-    auto const [cellCount, next, subStart, subEnd] = unicode::scan_text(_scanState, chunk, maxCharCount);
+    auto const [cellCount, subStart, subEnd] = unicode::scan_text(_scanState, chunk, maxCharCount);
 
-    if (next == input)
+    if (_scanState.next == input)
         return { ProcessKind::FallbackToFSM, 0 };
 
     // We do not test on cellCount>0 because the scan could contain only a ZWJ (zero width
@@ -408,27 +390,13 @@ auto Parser<EventListener, TraceStateChanges>::parseBulkText(char const* begin, 
 
     assert(cellCount <= maxCharCount);
     assert(subEnd <= chunk.data() + chunk.size());
-    assert(next <= chunk.data() + chunk.size());
-
-#if defined(LIBTERMINAL_LOG_TRACE)
-    if (VTTraceParserLog)
-        VTTraceParserLog()(
-            "[Unicode] Scanned text: maxCharCount {}; cells {}; bytes {}; UTF-8 ({}/{}): \"{}\"",
-            maxCharCount,
-            cellCount,
-            byteCount,
-            _scanState.utf8.currentLength,
-            _scanState.utf8.expectedLength,
-            crispy::escape(std::string_view { input, byteCount }));
-#endif
+    assert(_scanState.next <= chunk.data() + chunk.size());
 
     auto const text = std::string_view { subStart, byteCount };
     if (_scanState.utf8.expectedLength == 0)
     {
         if (!text.empty())
-        {
             _eventListener.print(text, cellCount);
-        }
 
         // This optimization is for the `cat`-people.
         // It further optimizes the throughput performance by bypassing
@@ -438,20 +406,12 @@ auto Parser<EventListener, TraceStateChanges>::parseBulkText(char const* begin, 
         if (input != end && *input == '\n')
             _eventListener.execute(*input++);
     }
-    else
-    {
-        // fmt::print("Parser.text: incomplete UTF-8 sequence at end: {}/{}\n",
-        //            _scanState.utf8.currentLength,
-        //            _scanState.utf8.expectedLength);
 
-        // for (char const ch: text)
-        //     printUtf8Byte(ch);
-    }
-
-    return { ProcessKind::ContinueBulk, static_cast<size_t>(std::distance(input, next)) };
+    auto const count = static_cast<size_t>(std::distance(input, _scanState.next));
+    return { ProcessKind::ContinueBulk, count };
 }
 
-template <typename EventListener, bool TraceStateChanges>
+template <ParserEventsConcept EventListener, bool TraceStateChanges>
 void Parser<EventListener, TraceStateChanges>::printUtf8Byte(char ch)
 {
     unicode::ConvertResult const r = unicode::from_utf8(_scanState.utf8, (uint8_t) ch);
@@ -465,20 +425,13 @@ void Parser<EventListener, TraceStateChanges>::printUtf8Byte(char ch)
     _scanState.lastCodepointHint = codepoint;
 }
 
-template <typename EventListener, bool TraceStateChanges>
+template <ParserEventsConcept EventListener, bool TraceStateChanges>
 void Parser<EventListener, TraceStateChanges>::handle(ActionClass actionClass,
                                                       Action action,
                                                       uint8_t codepoint)
 {
     (void) actionClass;
     auto const ch = static_cast<char>(codepoint);
-
-#if defined(LIBTERMINAL_LOG_TRACE)
-    if constexpr (TraceStateChanges)
-        if (VTTraceParserLog && action != Action::Ignore && action != Action::Undefined)
-            VTTraceParserLog()(
-                "handle: {} {} {} {}", _state, actionClass, action, crispy::escape(static_cast<uint8_t>(ch)));
-#endif
 
     switch (action)
     {
@@ -494,6 +447,7 @@ void Parser<EventListener, TraceStateChanges>::handle(ActionClass actionClass,
         case Action::ESC_Dispatch: _eventListener.dispatchESC(ch); break;
         case Action::CSI_Dispatch: _eventListener.dispatchCSI(ch); break;
         case Action::Print: printUtf8Byte(ch); break;
+        case Action::PrintEnd: _eventListener.printEnd(); break;
         case Action::OSC_Start: _eventListener.startOSC(); break;
         case Action::OSC_Put: _eventListener.putOSC(ch); break;
         case Action::OSC_End: _eventListener.dispatchOSC(); break;
@@ -511,4 +465,4 @@ void Parser<EventListener, TraceStateChanges>::handle(ActionClass actionClass,
     }
 }
 
-} // namespace terminal::parser
+} // namespace vtparser

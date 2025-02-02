@@ -1,28 +1,20 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <contour/Config.h>
 #include <contour/ContourApp.h>
 #include <contour/TerminalSessionManager.h>
+#include <contour/helper.h>
 
 #include <vtpty/Process.h>
+#include <vtpty/SshSession.h>
 
-#include <list>
+#include <QtDBus/QDBusVariant>
+#include <QtQml/QQmlApplicationEngine>
+
+#include <filesystem>
 #include <memory>
 #include <optional>
-#include <string_view>
 
 namespace contour
 {
@@ -33,63 +25,73 @@ namespace config
 }
 
 class TerminalSession;
-class TerminalWindow;
 
 /// Extends ContourApp with terminal GUI capability.
-class ContourGuiApp: public ContourApp
+class ContourGuiApp: public QObject, public ContourApp
 {
+    Q_OBJECT
+
   public:
     ContourGuiApp();
 
     static ContourGuiApp* instance() { return static_cast<ContourGuiApp*>(ContourApp::instance()); }
 
     int run(int argc, char const* argv[]) override;
-    crispy::cli::Command parameterDefinition() const override;
+    [[nodiscard]] crispy::cli::command parameterDefinition() const override;
 
-    TerminalWindow* newWindow();
-    TerminalWindow* newWindow(contour::config::Config const& _config);
-    void showNotification(std::string_view _title, std::string_view _content);
+    void newWindow();
+    static void showNotification(std::string_view title, std::string_view content);
 
-    std::string profileName() const;
+    [[nodiscard]] std::string profileName() const;
 
-    std::optional<terminal::Process::ExitStatus> exitStatus() const noexcept { return _exitStatus; }
+    using ExitStatus = std::optional<std::variant<vtpty::Process::ExitStatus, vtpty::SshSession::ExitStatus>>;
 
-    std::optional<FileSystem::path> dumpStateAtExit() const;
+    [[nodiscard]] ExitStatus exitStatus() const noexcept { return _exitStatus; }
 
-    void onExit(TerminalSession& _session);
+    [[nodiscard]] std::optional<std::filesystem::path> dumpStateAtExit() const;
+
+    void onExit(TerminalSession& session);
 
     config::Config& config() noexcept { return _config; }
-    config::Config const& config() const noexcept { return _config; }
-    config::TerminalProfile const& profile() const noexcept
+    [[nodiscard]] config::Config const& config() const noexcept { return _config; }
+    [[nodiscard]] config::TerminalProfile const& profile() const noexcept
     {
-        if (auto profile = config().profile(profileName()))
+        if (const auto* const profile = config().profile(profileName()))
             return *profile;
-        fmt::print("Failed to access config profile.\n");
+        displayLog()("Failed to access config profile.");
         Require(false);
     }
 
-    [[nodiscard]] bool liveConfig() const noexcept { return _config.live; }
+    [[nodiscard]] bool liveConfig() const noexcept { return _config.live.value(); }
 
     TerminalSessionManager& sessionsManager() noexcept { return _sessionManager; }
 
-    std::chrono::seconds earlyExitThreshold() const;
+    [[nodiscard]] std::chrono::seconds earlyExitThreshold() const;
 
-    std::string programPath() const { return _argv[0]; }
+    [[nodiscard]] std::string programPath() const { return _argv[0]; }
+
+    [[nodiscard]] static QUrl resolveResource(std::string_view path);
+
+    [[nodiscard]] vtbackend::ColorPreference colorPreference() const noexcept { return _colorPreference; }
 
   private:
-    void ensureTermInfoFile();
+    static void ensureTermInfoFile();
+    void setupQCoreApplication();
     bool loadConfig(std::string const& target);
     int terminalGuiAction();
     int fontConfigAction();
+    int checkConfig();
 
     config::Config _config;
     TerminalSessionManager _sessionManager;
 
     int _argc = 0;
     char const** _argv = nullptr;
-    std::optional<terminal::Process::ExitStatus> _exitStatus;
+    ExitStatus _exitStatus;
 
-    std::list<TerminalWindow*> _terminalWindows;
+    vtbackend::ColorPreference _colorPreference = vtbackend::ColorPreference::Dark;
+
+    std::unique_ptr<QQmlApplicationEngine> _qmlEngine;
 };
 
 } // namespace contour

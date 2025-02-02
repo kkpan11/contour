@@ -1,19 +1,12 @@
 #include <crispy/StackTrace.h>
 #include <crispy/utils.h>
-// #include <xzero/Tokenizer.h>
-// #include <xzero/Buffer.h>
-// #include <xzero/sysconfig.h>
-
-#include <fmt/format.h>
 
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
-#include <memory>
+#include <format>
 #include <optional>
 #include <regex>
-#include <typeinfo>
 
 #if !defined(_WIN32)
     #include <sys/types.h>
@@ -39,8 +32,6 @@
     #include <unwind.h>
 #endif
 
-#include <iostream>
-
 using std::nullopt;
 using std::optional;
 using std::regex;
@@ -50,15 +41,15 @@ using std::vector;
 namespace crispy
 {
 
-constexpr size_t MAX_FRAMES { 128 };
-constexpr size_t SKIP_FRAMES { 0 };
+constexpr size_t MAX_FRAMES { 128 }; // NOLINT
+constexpr size_t SKIP_FRAMES { 0 };  // NOLINT
 
 #if defined(__linux__) || defined(__APPLE__)
-struct Pipe // {{{
+struct system_wrap // {{{
 {
     int pfd[2];
 
-    Pipe(): pfd { -1, -1 }
+    system_wrap(): pfd { -1, -1 }
     {
         if (pipe(pfd))
             perror("pipe");
@@ -68,7 +59,7 @@ struct Pipe // {{{
     [[nodiscard]] int reader() noexcept { return pfd[0]; }
     [[nodiscard]] int writer() noexcept { return pfd[1]; }
 
-    ~Pipe() { close(); }
+    ~system_wrap() { close(); }
 
     void close()
     {
@@ -81,7 +72,7 @@ struct Pipe // {{{
 // }}}
 #endif
 
-vector<void*> StackTrace::getFrames(size_t skip, size_t max)
+vector<void*> stack_trace::getFrames(size_t skip, size_t max)
 {
     vector<void*> frames;
 
@@ -97,24 +88,24 @@ vector<void*> StackTrace::getFrames(size_t skip, size_t max)
     return frames;
 }
 
-optional<DebugInfo> StackTrace::getDebugInfoForFrame(void const* frameAddress)
+optional<debug_info> stack_trace::getDebugInfoForFrame(void const* frameAddress)
 {
     if (!frameAddress)
         return nullopt;
 
 #if defined(__linux__)
-    auto pipe = Pipe();
+    auto pipe = system_wrap();
     if (!pipe.good())
         return nullopt;
-    pid_t childPid = fork();
+    pid_t const childPid = fork();
     switch (childPid)
     {
         case -1: perror("vfork"); return nullopt;
         case 0: // in child
         {
-            std::string addr2lineExe = "/usr/bin/addr2line";
+            std::string const addr2lineExe = "/usr/bin/addr2line";
             char exe[512] {};
-            if (ssize_t rv = readlink("/proc/self/exe", exe, sizeof(exe)); rv < 0)
+            if (ssize_t const rv = readlink("/proc/self/exe", exe, sizeof(exe)); rv < 0)
                 _exit(EXIT_FAILURE);
             char addr[32];
             snprintf(addr, sizeof(addr), "%p", frameAddress);
@@ -147,7 +138,7 @@ optional<DebugInfo> StackTrace::getDebugInfoForFrame(void const* frameAddress)
                 --len;
 
             // result on success:
-            DebugInfo info;
+            debug_info info;
     #if 0
             auto static const re = regex(R"(^(.*):\d+$)");
             std::cmatch cm;
@@ -172,7 +163,7 @@ optional<DebugInfo> StackTrace::getDebugInfoForFrame(void const* frameAddress)
 #endif
 }
 
-StackTrace::StackTrace():
+stack_trace::stack_trace():
 #if defined(HAVE_BACKTRACE)
     _frames { SKIP_FRAMES + MAX_FRAMES }
 #else
@@ -184,9 +175,9 @@ StackTrace::StackTrace():
 #endif
 }
 
-string StackTrace::demangleSymbol(const char* symbol)
+string stack_trace::demangleSymbol(const char* symbol)
 {
-#if defined(__linux__) || defined(__APPLE__)
+#if (defined(__linux__) || defined(__APPLE__)) && defined(HAVE_CXXABI_H)
     int status = 0;
     char* demangled = abi::__cxa_demangle(symbol, nullptr, nullptr, &status);
 
@@ -205,7 +196,7 @@ string StackTrace::demangleSymbol(const char* symbol)
 #endif
 }
 
-vector<string> StackTrace::symbols() const
+vector<string> stack_trace::symbols() const
 {
     if (empty())
         return {};
@@ -217,11 +208,11 @@ vector<string> StackTrace::symbols() const
 #if defined(CONTOUR_STACKTRACE_ADDR2LINE)
         auto debugInfo = getDebugInfoForFrame(frame);
         if (!debugInfo)
-            output.emplace_back(fmt::format("{}", frame));
+            output.emplace_back(std::format("{}", frame));
         else
             output.emplace_back(debugInfo->text);
 #else
-        output.emplace_back(fmt::format("{}", frame));
+        output.emplace_back(std::format("{}", frame));
 #endif
     }
     return output;

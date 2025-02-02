@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <contour/display/Vertex.h>
@@ -58,36 +46,36 @@ class Blur: protected QOpenGLExtraFunctions
     QImage blurDualKawase(QImage imageToBlur, int offset, int iterations);
     QImage blurGaussian(QImage imageToBlur);
 
-    float getGPUTime();
-    float getCPUTime();
+    [[nodiscard]] float getGPUTime() const noexcept;
+    [[nodiscard]] float getCPUTime() const noexcept;
 
   private:
     void renderToFBO(QOpenGLFramebufferObject* targetFBO, GLuint sourceTexture, QOpenGLShaderProgram* shader);
     void initFBOTextures();
 
     //.
-    QOpenGLContext* m_context;
-    QOffscreenSurface* m_surface;
-    QOpenGLShaderProgram* m_gaussianBlur = nullptr;
-    QOpenGLShaderProgram* m_shaderKawaseUp = nullptr;
-    QOpenGLShaderProgram* m_shaderKawaseDown = nullptr;
+    QOpenGLContext* _context;
+    QOffscreenSurface* _surface;
+    QOpenGLShaderProgram* _gaussianBlur = nullptr;
+    QOpenGLShaderProgram* _shaderKawaseUp = nullptr;
+    QOpenGLShaderProgram* _shaderKawaseDown = nullptr;
     //.
 
-    QVector<QOpenGLFramebufferObject*> m_FBO_vector;
-    QOpenGLTexture* m_textureToBlur = nullptr;
+    QVector<QOpenGLFramebufferObject*> _vectorFBO;
+    QOpenGLTexture* _textureToBlur = nullptr;
 
-    QOpenGLVertexArrayObject m_VertexArrayObject;
-    QOpenGLBuffer m_vertexBuffer;
+    QOpenGLVertexArrayObject _vertexArrayObject;
+    QOpenGLBuffer _vertexBuffer;
 
-    int m_iterations = -1;
-    QImage m_imageToBlur;
+    int _iterations = -1;
+    QImage _imageToBlur;
 
     // GPU timer
-    GLuint64 GPUtimerElapsedTime {};
+    GLuint64 _timerGPUElapsedTime {};
 
     // CPU timer
-    QElapsedTimer CPUTimer;
-    quint64 CPUTimerElapsedTime {};
+    QElapsedTimer _timerCPU;
+    quint64 _timerCPUElapsedTime {};
 };
 
 } // namespace contour::display

@@ -1,32 +1,22 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <text_shaper/font.h>
 #include <text_shaper/font_locator.h>
 #include <text_shaper/open_shaper.h>
 
 #include <crispy/algorithm.h>
 #include <crispy/assert.h>
-#include <crispy/indexed.h>
 #include <crispy/times.h>
-
-#include <range/v3/algorithm/any_of.hpp>
-#include <range/v3/view/iota.hpp>
-
-#include <limits>
 
 #include <libunicode/convert.h>
 #include <libunicode/ucd_fmt.h>
+
+#include <range/v3/algorithm/any_of.hpp>
+#include <range/v3/view/enumerate.hpp>
+#include <range/v3/view/iota.hpp>
+
+#include <limits>
+#include <optional>
+#include <string>
 
 // clang-format off
 #include <ft2build.h>
@@ -36,7 +26,9 @@
 #include FT_LCD_FILTER_H
 // clang-format on
 
-#include <fontconfig/fontconfig.h>
+#if __has_include(<fontconfig/fontconfig.h>)
+    #include <fontconfig/fontconfig.h>
+#endif
 
 #include <harfbuzz/hb-ft.h>
 #include <harfbuzz/hb.h>
@@ -77,15 +69,16 @@ using namespace std::string_view_literals;
 namespace
 {
 
-struct FontPathAndSize // NOLINT(readability-identifier-naming)
+struct FontInfo // NOLINT(readability-identifier-naming)
 {
     string path;
     text::font_size size;
+    text::font_weight weight;
 };
 
-[[maybe_unused]] bool operator==(FontPathAndSize const& a, FontPathAndSize const& b) noexcept
+[[maybe_unused]] bool operator==(FontInfo const& a, FontInfo const& b) noexcept
 {
-    return a.path == b.path && a.size.pt == b.size.pt;
+    return a.path == b.path && a.size.pt == b.size.pt && a.weight == b.weight;
 }
 
 } // namespace
@@ -93,12 +86,13 @@ struct FontPathAndSize // NOLINT(readability-identifier-naming)
 namespace std
 {
 template <>
-struct hash<FontPathAndSize>
+struct hash<FontInfo>
 {
-    size_t operator()(FontPathAndSize const& fd) const noexcept
+    size_t operator()(FontInfo const& fd) const noexcept
     {
-        auto fnv = crispy::FNV<char>();
-        return size_t(fnv(fnv(fd.path), to_string(fd.size.pt))); // SSO should kick in.
+        auto fnv = crispy::fnv<char>();
+        return size_t(
+            fnv(fnv(fd.path), to_string(fd.size.pt), std::format("{}", fd.weight))); // SSO should kick in.
     }
 };
 } // namespace std
@@ -106,9 +100,9 @@ struct hash<FontPathAndSize>
 namespace text
 {
 
-using HbBufferPtr = unique_ptr<hb_buffer_t, void (*)(hb_buffer_t*)>;
-using HbFontPtr = unique_ptr<hb_font_t, void (*)(hb_font_t*)>;
-using FtFacePtr = unique_ptr<FT_FaceRec_, void (*)(FT_FaceRec_*)>;
+using hb_buffer_ptr = unique_ptr<hb_buffer_t, void (*)(hb_buffer_t*)>;
+using hb_font_ptr = unique_ptr<hb_font_t, void (*)(hb_font_t*)>;
+using ft_face_ptr = unique_ptr<FT_FaceRec_, void (*)(FT_FaceRec_*)>;
 
 auto constexpr MissingGlyphId = 0xFFFDu;
 
@@ -117,8 +111,8 @@ struct HbFontInfo // NOLINT(readability-identifier-naming)
     font_source primary;
     font_source_list fallbacks;
     font_size size;
-    FtFacePtr ftFace;
-    HbFontPtr hbFont;
+    ft_face_ptr ftFace;
+    hb_font_ptr hbFont;
     std::optional<font_metrics> metrics {};
     font_description description {};
 };
@@ -214,80 +208,94 @@ namespace
         return int(ceil(double(maxAdvance) / 64.0));
     }
 
-    int ftBestStrikeIndex(FT_Face face, int fontWidth) noexcept
+    std::optional<int> ftBestStrikeIndex(FT_Face face, double pt, DPI dpi) noexcept
     {
-        int best = 0;
-        int diff = numeric_limits<int>::max();
-        for (int i = 0; i < face->num_fixed_sizes; ++i)
+        auto const targetLength = static_cast<int>(pt * dpi.y / 72.0);
+        int bestIndex = 0;
+        if (face->num_fixed_sizes == 0)
+            return nullopt;
+
+        int bestDiff = std::abs(int(face->available_sizes[0].width) - targetLength);
+        for (int i = 1; i < face->num_fixed_sizes; ++i)
         {
-            auto const currentWidth = face->available_sizes[i].width;
-            auto const theDiff =
-                currentWidth > fontWidth ? currentWidth - fontWidth : fontWidth - currentWidth;
-            if (theDiff < diff)
+            auto const diff = std::abs(int(face->available_sizes[i].width) - targetLength);
+            if (diff < bestDiff)
             {
-                diff = theDiff;
-                best = i;
+                bestDiff = diff;
+                bestIndex = i;
             }
         }
-        return best;
+        return bestIndex;
     }
 
-    optional<FtFacePtr> loadFace(font_source const& source, font_size fontSize, DPI dpi, FT_Library ft)
+    optional<ft_face_ptr> loadFace(font_source const& source, font_size fontSize, DPI dpi, FT_Library ft)
     {
         FT_Face ftFace = nullptr;
 
         if (holds_alternative<font_path>(source))
         {
             auto const& sourcePath = get<font_path>(source);
-            FT_Error ec = FT_New_Face(ft, sourcePath.value.c_str(), sourcePath.collectionIndex, &ftFace);
+            FT_Error const ec =
+                FT_New_Face(ft, sourcePath.value.c_str(), sourcePath.collectionIndex, &ftFace);
             if (!ftFace)
             {
                 // clang-format off
-                errorlog()("Failed to load font from path {}. {}", sourcePath.value, ftErrorStr(ec));
+                errorLog()("Failed to load font from path {}. {}", sourcePath.value, ftErrorStr(ec));
                 // clang-format on
                 return nullopt;
             }
         }
         else if (holds_alternative<font_memory_ref>(source))
         {
-            int faceIndex = 0;
+            int const faceIndex = 0;
             auto const& memory = get<font_memory_ref>(source);
-            FT_Error ec = FT_New_Memory_Face(
+            FT_Error const ec = FT_New_Memory_Face(
                 ft, memory.data.data(), static_cast<FT_Long>(memory.data.size()), faceIndex, &ftFace);
             if (!ftFace)
             {
-                errorlog()("Failed to load font from memory. {}", ftErrorStr(ec));
+                errorLog()("Failed to load font from memory. {}", ftErrorStr(ec));
                 return nullopt;
             }
         }
         else
         {
-            errorlog()("Unsupported font_source type.");
+            errorLog()("Unsupported font_source type.");
             return nullopt;
         }
 
         if (FT_Error const ec = FT_Select_Charmap(ftFace, FT_ENCODING_UNICODE); ec != FT_Err_Ok)
-            errorlog()("FT_Select_Charmap failed. Ignoring; {}", ftErrorStr(ec));
+            errorLog()("FT_Select_Charmap failed. Ignoring; {}", ftErrorStr(ec));
 
         if (FT_HAS_COLOR(ftFace))
         {
-            auto const strikeIndex =
-                ftBestStrikeIndex(ftFace, int(fontSize.pt)); // TODO: should be font width (not height)
+            auto const strikeIndexOpt = ftBestStrikeIndex(ftFace, fontSize.pt, dpi);
+            if (!strikeIndexOpt.has_value())
+            {
+                FT_Done_Face(ftFace);
+                return nullopt;
+            }
 
+            auto const strikeIndex = strikeIndexOpt.value();
             FT_Error const ec = FT_Select_Size(ftFace, strikeIndex);
             if (ec != FT_Err_Ok)
-                errorlog()(
+                errorLog()(
                     "Failed to FT_Select_Size(index={}, source {}): {}", strikeIndex, source, ftErrorStr(ec));
+            else
+                rasterizerLog()("Picked color font's strike index {} ({}x{}) from {}\n",
+                                strikeIndex,
+                                ftFace->available_sizes[strikeIndex].width,
+                                ftFace->available_sizes[strikeIndex].height,
+                                source);
         }
         else
         {
             auto const size = static_cast<FT_F26Dot6>(ceil(fontSize.pt * 64.0));
 
             if (FT_Error const ec = FT_Set_Char_Size(
-                    ftFace, 0, size, static_cast<FT_UInt>(dpi.x), static_cast<FT_UInt>(dpi.y));
+                    ftFace, size, 0, static_cast<FT_UInt>(dpi.x), static_cast<FT_UInt>(dpi.y));
                 ec != FT_Err_Ok)
             {
-                errorlog()("Failed to FT_Set_Char_Size(size={}, dpi {}, source {}): {}\n",
+                errorLog()("Failed to FT_Set_Char_Size(size={}, dpi {}, source {}): {}\n",
                            size,
                            dpi,
                            source,
@@ -299,7 +307,7 @@ namespace
             }
         }
 
-        return optional<FtFacePtr> { FtFacePtr(ftFace, [](FT_Face p) { FT_Done_Face(p); }) };
+        return optional<ft_face_ptr> { ft_face_ptr(ftFace, [](FT_Face p) { FT_Done_Face(p); }) };
     }
 
     void replaceMissingGlyphs(FT_Face ftFace, shape_result& result)
@@ -309,7 +317,7 @@ namespace
         if (!missingGlyph)
             return;
 
-        for (auto&& [i, gpos]: crispy::indexed(result))
+        for (auto&& [i, gpos]: ranges::views::enumerate(result))
             if (glyphMissing(gpos))
                 gpos.glyph.index = glyph_index { missingGlyph };
     }
@@ -366,7 +374,8 @@ namespace
         for (auto const i: iota(0u, glyphCount))
         {
             glyph_position gpos {};
-            gpos.glyph = glyph_key { fontInfo.size, font, glyph_index { info[i].codepoint } };
+            gpos.glyph =
+                glyph_key { .size = fontInfo.size, .font = font, .index = glyph_index { info[i].codepoint } };
 #if defined(GLYPH_KEY_DEBUG)
             {
                 auto const cluster = info[i].cluster;
@@ -383,17 +392,18 @@ namespace
             gpos.presentation = presentation;
             result.emplace_back(gpos);
         }
+
         return crispy::none_of(result, glyphMissing);
     }
 } // namespace
 
-struct open_shaper::Private // {{{
+struct open_shaper::private_open_shaper // {{{
 {
-    crispy::finally _ftCleanup;
-    FT_Library _ft {};
-    font_locator* _locator = nullptr;
-    DPI _dpi;
-    unordered_map<FontPathAndSize, font_key> fontPathAndSizeToKeyMapping;
+    crispy::finally ftCleanup;
+    FT_Library ft {};
+    font_locator* locator = nullptr;
+    DPI dpi;
+    unordered_map<FontInfo, font_key> fontPathAndSizeToKeyMapping;
     unordered_map<font_key, HbFontInfo> fontKeyToHbFontInfoMapping; // from font_key to FontInfo struct
 
     // Blacklisted font files as we tried them already and failed.
@@ -402,14 +412,14 @@ struct open_shaper::Private // {{{
     // The key (for caching) should be composed out of:
     // (file_path, file_mtime, font_weight, font_slant, pixel_size)
 
-    unordered_map<glyph_key, rasterized_glyph> _glyphs;
-    HbBufferPtr _hb_buf;
-    font_key _nextFontKey;
+    unordered_map<glyph_key, rasterized_glyph> glyphs;
+    hb_buffer_ptr hbBuf;
+    font_key nextFontKey;
 
     font_key create_font_key()
     {
-        auto result = _nextFontKey;
-        _nextFontKey.value++;
+        auto result = nextFontKey;
+        nextFontKey.value++;
         return result;
     }
 
@@ -418,17 +428,20 @@ struct open_shaper::Private // {{{
         return FT_HAS_COLOR(fontKeyToHbFontInfoMapping.at(font).ftFace.get());
     }
 
-    optional<font_key> getOrCreateKeyForFont(font_source const& source, font_size fontSize)
+    optional<font_key> getOrCreateKeyForFont(font_source const& source,
+                                             font_size fontSize,
+                                             font_weight fontWeight)
     {
         auto const sourceId = identifierOf(source);
-        if (auto i = fontPathAndSizeToKeyMapping.find(FontPathAndSize { sourceId, fontSize });
+        if (auto i = fontPathAndSizeToKeyMapping.find(
+                FontInfo { .path = sourceId, .size = fontSize, .weight = fontWeight });
             i != fontPathAndSizeToKeyMapping.end())
             return i->second;
 
         if (ranges::any_of(blacklistedSources, [&](auto const& a) { return a == sourceId; }))
             return nullopt;
 
-        auto ftFacePtrOpt = loadFace(source, fontSize, _dpi, _ft);
+        auto ftFacePtrOpt = loadFace(source, fontSize, dpi, ft);
         if (!ftFacePtrOpt.has_value())
         {
             blacklistedSources.emplace_back(sourceId);
@@ -437,15 +450,20 @@ struct open_shaper::Private // {{{
 
         auto ftFacePtr = std::move(ftFacePtrOpt.value());
         auto hbFontPtr =
-            HbFontPtr(hb_ft_font_create_referenced(ftFacePtr.get()), [](auto p) { hb_font_destroy(p); });
+            hb_font_ptr(hb_ft_font_create_referenced(ftFacePtr.get()), [](auto p) { hb_font_destroy(p); });
 
-        auto fontInfo = HbFontInfo { source, {}, fontSize, std::move(ftFacePtr), std::move(hbFontPtr) };
+        auto fontInfo = HbFontInfo { .primary = source,
+                                     .fallbacks = {},
+                                     .size = fontSize,
+                                     .ftFace = std::move(ftFacePtr),
+                                     .hbFont = std::move(hbFontPtr) };
 
         auto key = create_font_key();
-        fontPathAndSizeToKeyMapping.emplace(pair { FontPathAndSize { sourceId, fontSize }, key });
+        fontPathAndSizeToKeyMapping.emplace(
+            pair { FontInfo { .path = sourceId, .size = fontSize, .weight = fontWeight }, key });
         fontKeyToHbFontInfoMapping.emplace(pair { key, std::move(fontInfo) });
-        LocatorLog()(
-            "Loading font: key={}, id=\"{}\" size={} dpi {} {}", key, sourceId, fontSize, _dpi, metrics(key));
+        locatorLog()(
+            "Loading font: key={}, id=\"{}\" size={} dpi {} {}", key, sourceId, fontSize, dpi, metrics(key));
         return key;
     }
 
@@ -456,32 +474,32 @@ struct open_shaper::Private // {{{
 
         font_metrics output {};
 
-        output.line_height = scaleVertical(ftFace, ftFace->height);
+        output.lineHeight = scaleVertical(ftFace, ftFace->height);
         output.advance = computeAverageAdvance(ftFace);
         if (!output.advance)
-            output.advance = int(double(output.line_height) * 2.0 / 3.0);
+            output.advance = int(double(output.lineHeight) * 2.0 / 3.0);
         output.ascender = scaleVertical(ftFace, ftFace->ascender);
         output.descender = scaleVertical(ftFace, ftFace->descender);
-        output.underline_position = scaleVertical(ftFace, ftFace->underline_position);
-        output.underline_thickness = scaleVertical(ftFace, ftFace->underline_thickness);
+        output.underlinePosition = scaleVertical(ftFace, ftFace->underline_position);
+        output.underlineThickness = scaleVertical(ftFace, ftFace->underline_thickness);
 
         return output;
     }
 
-    Private(DPI dpi, font_locator& locator):
-        _ftCleanup { [this]() {
-            FT_Done_FreeType(_ft);
+    private_open_shaper(DPI dpi, font_locator& locator):
+        ftCleanup { [this]() {
+            FT_Done_FreeType(ft);
         } },
-        _locator { &locator },
-        _dpi { dpi },
-        _hb_buf(hb_buffer_create(), [](auto p) { hb_buffer_destroy(p); }),
-        _nextFontKey {}
+        locator { &locator },
+        dpi { dpi },
+        hbBuf(hb_buffer_create(), [](auto p) { hb_buffer_destroy(p); }),
+        nextFontKey {}
     {
-        if (auto const ec = FT_Init_FreeType(&_ft); ec != FT_Err_Ok)
+        if (auto const ec = FT_Init_FreeType(&ft); ec != FT_Err_Ok)
             throw runtime_error { "freetype: Failed to initialize. "s + ftErrorStr(ec) };
 
-        if (auto const ec = FT_Library_SetLcdFilter(_ft, FT_LCD_FILTER_DEFAULT); ec != FT_Err_Ok)
-            errorlog()("freetype: Failed to set LCD filter. {}", ftErrorStr(ec));
+        if (auto const ec = FT_Library_SetLcdFilter(ft, FT_LCD_FILTER_DEFAULT); ec != FT_Err_Ok)
+            errorLog()("freetype: Failed to set LCD filter. {}", ftErrorStr(ec));
     }
 
     bool tryShapeWithFallback(font_key font,
@@ -503,12 +521,13 @@ struct open_shaper::Private // {{{
         {
             result.resize(initialResultOffset); // rollback to initial size
 
-            optional<font_key> fallbackKeyOpt = getOrCreateKeyForFont(fallbackFont, fontInfo.size);
+            optional<font_key> fallbackKeyOpt =
+                getOrCreateKeyForFont(fallbackFont, fontInfo.size, fontInfo.description.weight);
             if (!fallbackKeyOpt.has_value())
                 continue;
 
             // Skip if main font is monospace but fallbacks font is not.
-            if (fontInfo.description.strict_spacing
+            if (fontInfo.description.strictSpacing
                 && fontInfo.description.spacing != font_spacing::proportional)
             {
                 Require(fontKeyToHbFontInfoMapping.count(fallbackKeyOpt.value()) == 1);
@@ -521,7 +540,7 @@ struct open_shaper::Private // {{{
             Require(fontKeyToHbFontInfoMapping.count(fallbackKeyOpt.value()) == 1);
             HbFontInfo& fallbackFontInfo = fontKeyToHbFontInfoMapping.at(fallbackKeyOpt.value());
             // clang-format off
-            TextShapingLog()("Try fallbacks font key:{}, source: {}",
+            textShapingLog()("Try fallbacks font key:{}, source: {}",
                              fallbackKeyOpt.value(),
                              fallbackFontInfo.primary);
             // clang-format on
@@ -542,7 +561,7 @@ struct open_shaper::Private // {{{
 }; // }}}
 
 open_shaper::open_shaper(DPI dpi, font_locator& locator):
-    _d(new Private(dpi, locator), [](Private* p) { delete p; })
+    _d(new private_open_shaper(dpi, locator), [](private_open_shaper* p) { delete p; })
 {
 }
 
@@ -551,17 +570,17 @@ void open_shaper::set_dpi(DPI dpi)
     if (!dpi)
         return;
 
-    _d->_dpi = dpi;
+    _d->dpi = dpi;
 }
 
 void open_shaper::set_locator(font_locator& locator)
 {
-    _d->_locator = &locator;
+    _d->locator = &locator;
 }
 
 void open_shaper::clear_cache()
 {
-    LocatorLog()("Clearing cache ({} keys, {} font infos).",
+    locatorLog()("Clearing cache ({} keys, {} font infos).",
                  _d->fontPathAndSizeToKeyMapping.size(),
                  _d->fontKeyToHbFontInfoMapping.size());
     _d->fontPathAndSizeToKeyMapping.clear();
@@ -570,11 +589,11 @@ void open_shaper::clear_cache()
 
 optional<font_key> open_shaper::load_font(font_description const& description, font_size size)
 {
-    font_source_list sources = _d->_locator->locate(description);
+    font_source_list sources = _d->locator->locate(description);
     if (sources.empty())
         return nullopt;
 
-    optional<font_key> fontKeyOpt = _d->getOrCreateKeyForFont(sources[0], size);
+    optional<font_key> fontKeyOpt = _d->getOrCreateKeyForFont(sources[0], size, description.weight);
     if (!fontKeyOpt.has_value())
         return nullopt;
 
@@ -595,21 +614,22 @@ font_metrics open_shaper::metrics(font_key key) const
         return fontInfo.metrics.value();
 
     fontInfo.metrics = _d->metrics(key);
-    LocatorLog()("Calculating font metrics for {}: {}", fontInfo.description, *fontInfo.metrics);
+    locatorLog()("Calculating font metrics for {}: {}", fontInfo.description, *fontInfo.metrics);
     return fontInfo.metrics.value();
 }
 
 optional<glyph_position> open_shaper::shape(font_key font, char32_t codepoint)
 {
     Require(_d->fontKeyToHbFontInfoMapping.count(font) == 1);
-    HbFontInfo& fontInfo = _d->fontKeyToHbFontInfoMapping.at(font);
+    HbFontInfo const& fontInfo = _d->fontKeyToHbFontInfoMapping.at(font);
 
     glyph_index glyphIndex { FT_Get_Char_Index(fontInfo.ftFace.get(), codepoint) };
     if (!glyphIndex.value)
     {
         for (font_source const& fallbackFont: fontInfo.fallbacks)
         {
-            optional<font_key> fallbackKeyOpt = _d->getOrCreateKeyForFont(fallbackFont, fontInfo.size);
+            optional<font_key> fallbackKeyOpt =
+                _d->getOrCreateKeyForFont(fallbackFont, fontInfo.size, fontInfo.description.weight);
             if (!fallbackKeyOpt.has_value())
                 continue;
             Require(_d->fontKeyToHbFontInfoMapping.count(fallbackKeyOpt.value()) == 1);
@@ -623,12 +643,12 @@ optional<glyph_position> open_shaper::shape(font_key font, char32_t codepoint)
         return nullopt;
 
     glyph_position gpos {};
-    gpos.glyph = glyph_key { fontInfo.size, font, glyphIndex };
+    gpos.glyph = glyph_key { .size = fontInfo.size, .font = font, .index = glyphIndex };
 #if defined(GLYPH_KEY_DEBUG)
     gpos.glyph.text = std::u32string(1, codepoint);
 #endif
     gpos.advance.x = this->metrics(font).advance;
-    gpos.offset = crispy::Point {}; // TODO (load from glyph metrics. Is this needed?)
+    gpos.offset = crispy::point {}; // TODO (load from glyph metrics. Is this needed?)
 
     return gpos;
 }
@@ -641,24 +661,24 @@ void open_shaper::shape(font_key font,
                         shape_result& result)
 {
     assert(clusters.size() == codepoints.size());
-    TextShapingLog()("Shaping using font key: {}, text: \"{}\"", font, unicode::convert_to<char>(codepoints));
+    textShapingLog()("Shaping using font key: {}, text: \"{}\"", font, unicode::convert_to<char>(codepoints));
     if (!_d->fontKeyToHbFontInfoMapping.count(font))
-        TextShapingLog()("Font not found? {}", font);
+        textShapingLog()("Font not found? {}", font);
 
     Require(_d->fontKeyToHbFontInfoMapping.count(font) == 1);
     HbFontInfo& fontInfo = _d->fontKeyToHbFontInfoMapping.at(font);
     hb_font_t* hbFont = fontInfo.hbFont.get();
-    hb_buffer_t* hbBuf = _d->_hb_buf.get();
+    hb_buffer_t* hbBuf = _d->hbBuf.get();
 
-    if (TextShapingLog)
+    if (textShapingLog)
     {
-        auto logMessage = TextShapingLog();
+        auto logMessage = textShapingLog();
         logMessage.append("Shaping codepoints (");
         // clang-format off
         logMessage.append([=]() { auto s = ostringstream(); s << presentation; return s.str(); }());
         // clang-format on
         logMessage.append("):");
-        for (auto [i, codepoint]: crispy::indexed(codepoints))
+        for (auto [i, codepoint]: ranges::views::enumerate(codepoints))
             logMessage.append(" {}:U+{:x}", clusters[i], static_cast<unsigned>(codepoint));
         logMessage.append("\n");
         logMessage.append("Using font: key={}, path=\"{}\"\n", font, identifierOf(fontInfo.primary));
@@ -668,7 +688,7 @@ void open_shaper::shape(font_key font,
             font, fontInfo, hbBuf, hbFont, script, presentation, codepoints, clusters, result))
         return;
 
-    TextShapingLog()("Shaping failed.");
+    textShapingLog()("Shaping failed.");
 
     // Reshape each cluster individually.
     result.clear();
@@ -726,8 +746,8 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
 
         if (ec != FT_Err_Ok)
         {
-            if (LocatorLog)
-                LocatorLog()("Error loading glyph index {} for font {} {}. {}",
+            if (locatorLog)
+                locatorLog()("Error loading glyph index {} for font {} {}. {}",
                              glyphIndex.value,
                              ftFace->family_name,
                              ftFace->style_name,
@@ -741,14 +761,14 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
     {
         if (FT_Render_Glyph(ftFace->glyph, ftRenderMode(mode)) != FT_Err_Ok)
         {
-            RasterizerLog()("Failed to rasterize glyph {}.", glyph);
+            rasterizerLog()("Failed to rasterize glyph {}.", glyph);
             return nullopt;
         }
     }
 
     auto output = rasterized_glyph {};
-    output.bitmapSize.width = crispy::Width::cast_from(ftFace->glyph->bitmap.width);
-    output.bitmapSize.height = crispy::Height::cast_from(ftFace->glyph->bitmap.rows);
+    output.bitmapSize.width = vtbackend::Width::cast_from(ftFace->glyph->bitmap.width);
+    output.bitmapSize.height = vtbackend::Height::cast_from(ftFace->glyph->bitmap.rows);
     output.position.x = ftFace->glyph->bitmap_left;
     output.position.y = ftFace->glyph->bitmap_top;
 
@@ -762,7 +782,7 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
             FT_Bitmap ftBitmap;
             FT_Bitmap_Init(&ftBitmap);
 
-            auto const ec = FT_Bitmap_Convert(_d->_ft, &ftFace->glyph->bitmap, &ftBitmap, 1);
+            auto const ec = FT_Bitmap_Convert(_d->ft, &ftFace->glyph->bitmap, &ftBitmap, 1);
             if (ec != FT_Err_Ok)
                 return nullopt;
 
@@ -775,10 +795,11 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
             auto const pitch = static_cast<size_t>(ftBitmap.pitch);
             for (auto const i: iota(size_t { 0 }, static_cast<size_t>(ftBitmap.rows)))
                 for (auto const j: iota(size_t { 0 }, static_cast<size_t>(ftBitmap.width)))
-                    output.bitmap[i * width.as<size_t>() + j] = min(
-                        static_cast<uint8_t>(uint8_t(ftBitmap.buffer[i * pitch + j]) * 255), uint8_t { 255 });
+                    output.bitmap[(i * width.as<size_t>()) + j] =
+                        min(static_cast<uint8_t>(uint8_t(ftBitmap.buffer[(i * pitch) + j]) * 255),
+                            uint8_t { 255 });
 
-            FT_Bitmap_Done(_d->_ft, &ftBitmap);
+            FT_Bitmap_Done(_d->ft, &ftBitmap);
             break;
         }
         case FT_PIXEL_MODE_GRAY: {
@@ -790,21 +811,21 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
             auto const* const s = ftFace->glyph->bitmap.buffer;
             for (auto const i: iota(0u, *output.bitmapSize.height))
                 for (auto const j: iota(0u, *output.bitmapSize.width))
-                    output.bitmap[i * *output.bitmapSize.width + j] = s[i * pitch + j];
+                    output.bitmap[(i * unbox(output.bitmapSize.width)) + j] = s[(i * pitch) + j];
             break;
         }
         case FT_PIXEL_MODE_LCD: {
             auto const& ftBitmap = ftFace->glyph->bitmap;
-            // RasterizerLog()("Rasterizing using pixel mode: {}, rows={}, width={}, pitch={}, mode={}",
+            // rasterizerLog()("Rasterizing using pixel mode: {}, rows={}, width={}, pitch={}, mode={}",
             //                 "lcd",
             //                 ftBitmap.rows,
-            //                 ftBitmap.width,
+            //                 ftBitmap.width / 3,
             //                 ftBitmap.pitch,
             //                 ftBitmap.pixel_mode);
 
             output.format = bitmap_format::rgb; // LCD
             output.bitmap.resize(static_cast<size_t>(ftBitmap.width) * static_cast<size_t>(ftBitmap.rows));
-            output.bitmapSize.width /= crispy::Width(3);
+            output.bitmapSize.width /= vtbackend::Width(3);
 
             auto const* s = ftBitmap.buffer;
             auto* t = output.bitmap.data();
@@ -827,6 +848,7 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
         case FT_PIXEL_MODE_BGRA: {
             auto const width = output.bitmapSize.width;
             auto const height = output.bitmapSize.height;
+            // rasterizerLog()("rasterize.RGBA: {} + {}\n", output.bitmapSize, output.position);
 
             output.format = bitmap_format::rgba;
             output.bitmap.resize(output.bitmapSize.area() * 4);
@@ -839,7 +861,7 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
                 {
                     auto const* s =
                         &ftFace->glyph->bitmap
-                             .buffer[static_cast<size_t>(i) * pitch + static_cast<size_t>(j) * 4u];
+                             .buffer[(static_cast<size_t>(i) * pitch) + (static_cast<size_t>(j) * 4u)];
 
                     // BGRA -> RGBA
                     *t++ = s[2];
@@ -851,15 +873,15 @@ optional<rasterized_glyph> open_shaper::rasterize(glyph_key glyph, render_mode m
             break;
         }
         default:
-            RasterizerLog()("Glyph requested that has an unsupported pixel_mode:{}",
+            rasterizerLog()("Glyph requested that has an unsupported pixel_mode:{}",
                             ftFace->glyph->bitmap.pixel_mode);
             return nullopt;
     }
 
     Ensures(output.valid());
 
-    if (RasterizerLog)
-        RasterizerLog()("rasterize {} to {}", glyph, output);
+    if (rasterizerLog)
+        rasterizerLog()("rasterize {} to {}", glyph, output);
 
     return output;
 }

@@ -1,26 +1,13 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <fmt/format.h>
-
+#include <format>
 #include <ostream>
 
 namespace crispy
 {
 
-struct [[nodiscard]] Point
+struct [[nodiscard]] point
 {
     int x {};
     int y {};
@@ -29,36 +16,36 @@ struct [[nodiscard]] Point
 template <typename T>
 constexpr inline T Zero {};
 template <>
-constexpr inline Point Zero<Point> = Point { 0, 0 };
+constexpr inline point Zero<point> = point { 0, 0 };
 
-constexpr Point operator*(Point p, double s) noexcept
+constexpr point operator*(point p, double s) noexcept
 {
-    return Point {
+    return point {
         static_cast<int>(static_cast<double>(p.x) * s),
         static_cast<int>(static_cast<double>(p.y) * s),
     };
 }
 
-constexpr Point operator+(Point a, Point b) noexcept
+constexpr point operator+(point a, point b) noexcept
 {
-    return Point { a.x + b.x, a.y + b.y };
+    return point { a.x + b.x, a.y + b.y };
 }
 
-constexpr Point& operator+=(Point& a, Point b) noexcept
+constexpr point& operator+=(point& a, point b) noexcept
 {
     a.x += b.x;
     a.y += b.y;
     return a;
 }
 
-constexpr void swap(Point& a, Point& b) noexcept
+constexpr void swap(point& a, point& b) noexcept
 {
-    Point const c = a;
+    point const c = a;
     a = b;
     b = c;
 }
 
-constexpr inline int compare(Point const& a, Point const& b) noexcept
+constexpr inline int compare(point const& a, point const& b) noexcept
 {
     if (auto const dr = a.y - b.y; dr != 0)
         return dr;
@@ -66,52 +53,43 @@ constexpr inline int compare(Point const& a, Point const& b) noexcept
         return a.x - b.x;
 }
 
-constexpr inline bool operator<(Point const& a, Point const& b) noexcept
+constexpr inline bool operator<(point const& a, point const& b) noexcept
 {
     return compare(a, b) < 0;
 }
 
-constexpr inline bool operator<=(Point const& a, Point const& b) noexcept
+constexpr inline bool operator<=(point const& a, point const& b) noexcept
 {
     return compare(a, b) <= 0;
 }
 
-constexpr inline bool operator>(Point const& a, Point const& b) noexcept
+constexpr inline bool operator>(point const& a, point const& b) noexcept
 {
     return compare(a, b) > 0;
 }
 
-constexpr inline bool operator>=(Point const& a, Point const& b) noexcept
+constexpr inline bool operator>=(point const& a, point const& b) noexcept
 {
     return compare(a, b) >= 0;
 }
 
-constexpr inline bool operator==(Point const& a, Point const& b) noexcept
+constexpr inline bool operator==(point const& a, point const& b) noexcept
 {
     return a.x == b.x && a.y == b.y;
 }
 
-constexpr inline bool operator!=(Point const& a, Point const& b) noexcept
+constexpr inline bool operator!=(point const& a, point const& b) noexcept
 {
     return !(a == b);
 }
 
 } // namespace crispy
 
-namespace fmt
-{
 template <>
-struct formatter<crispy::Point>
+struct std::formatter<crispy::point>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(crispy::point coord, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(crispy::Point coord, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "({}, {})", coord.x, coord.y);
+        return formatter<std::string>::format(std::format("({}, {})", coord.x, coord.y), ctx);
     }
 };
-} // namespace fmt

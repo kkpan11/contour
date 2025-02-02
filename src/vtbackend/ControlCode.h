@@ -1,22 +1,11 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <cstdint>
 #include <limits>
 #include <string_view>
 
-namespace terminal::ControlCode
+namespace vtbackend::ControlCode
 {
 
 enum class C0 : char
@@ -60,7 +49,7 @@ enum class C0 : char
 };
 
 // NOLINTBEGIN(readability-identifier-naming)
-enum class C1_7bit
+enum class C1_7bit : char
 {
     SCS_G0 = 0x28,       //!< Set Character Set (0)
     SCS_G1 = 0x29,       //!< Set Character Set (1)
@@ -102,7 +91,7 @@ enum class C1_7bit
     APC = 0x5f,          //!< Application Program Command
 };
 
-enum class C1_8bit
+enum class C1_8bit : uint8_t
 {
     PAD = 0x80,  //!< Padding Character
     HOP = 0x81,  //!< High Octet Preset
@@ -308,27 +297,27 @@ constexpr std::string_view to_string(C1_8bit code)
     }
 }
 
-} // namespace terminal::ControlCode
+} // namespace vtbackend::ControlCode
 
 namespace std
 {
 
 template <>
-struct numeric_limits<terminal::ControlCode::C0>
+struct numeric_limits<vtbackend::ControlCode::C0>
 {
     static constexpr size_t min() noexcept { return 0x00; }
     static constexpr size_t max() noexcept { return 0x1F; }
 };
 
 template <>
-struct numeric_limits<terminal::ControlCode::C1_7bit>
+struct numeric_limits<vtbackend::ControlCode::C1_7bit>
 {
     static constexpr size_t min() noexcept { return 0x28; }
     static constexpr size_t max() noexcept { return 0x5F; }
 };
 
 template <>
-struct numeric_limits<terminal::ControlCode::C1_8bit>
+struct numeric_limits<vtbackend::ControlCode::C1_8bit>
 {
     static constexpr size_t min() noexcept { return 0x80; }
     static constexpr size_t max() noexcept { return 0x9F; }

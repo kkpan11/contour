@@ -6,13 +6,15 @@
 #include <vtbackend/primitives.h>
 
 #include <chrono>
+#include <map>
 
-namespace terminal
+namespace vtbackend
 {
 
+// TODO : use boxed type
 struct RefreshRate
 {
-    double value;
+    double value { 24 };
 };
 
 struct RefreshInterval
@@ -28,6 +30,9 @@ struct Settings
     VTType terminalId = VTType::VT525;
     ColorPalette colorPalette; // NB: The default color palette can be taken from the factory settings.
 
+    // Set of DEC modes that are frozen and cannot be changed by the application.
+    std::map<vtbackend::DECMode, bool> frozenModes;
+
     // total page size available to this terminal.
     // This page size may differ from the main displays (primary/alternate screen) page size If
     // some other display is shown along with it (e.g. below the main display).
@@ -38,14 +43,25 @@ struct Settings
     unsigned maxImageRegisterCount = 256;
     StatusDisplayType statusDisplayType = StatusDisplayType::None;
     StatusDisplayPosition statusDisplayPosition = StatusDisplayPosition::Bottom;
+    struct
+    {
+        std::string left { "{VTType} │ {InputMode:Bold,Color=#C0C030}{SearchPrompt:Left= │ }"
+                           "{TraceMode:Bold,Color=#FFFF00,Left= │ }{ProtectedMode:Bold,Left= │ }" };
+        std::string middle { "{Title:Left= « ,Right= » ,Color=#20c0c0}" };
+        std::string right { "{HistoryLineCount:Faint,Color=#c0c0c0} │ {Clock:Bold} " };
+    } indicatorStatusLine;
     bool syncWindowTitleWithHostWritableStatusDisplay = true;
     CursorDisplay cursorDisplay = CursorDisplay::Steady;
     CursorShape cursorShape = CursorShape::Block;
 
-    bool usePrivateColorRegisters_ = false;
+    bool usePrivateColorRegisters = false;
 
     std::chrono::milliseconds cursorBlinkInterval = std::chrono::milliseconds { 500 };
     RefreshRate refreshRate = { 30.0 };
+
+    // Defines the time to wait before the terminal executes the line feed (LF) command.
+    // This is used to implement the DECSCLM (slow scroll) mode.
+    std::chrono::milliseconds smoothLineScrolling { 100 };
 
     // Size in bytes per PTY Buffer Object.
     //
@@ -57,8 +73,9 @@ struct Settings
     // This value must be integer-devisable by 16.
     size_t ptyReadBufferSize = 4096;
     std::u32string wordDelimiters;
-    Modifier mouseProtocolBypassModifier = Modifier::Shift;
-    Modifier mouseBlockSelectionModifier = Modifier::Control;
+    std::u32string extendedWordDelimiters;
+    Modifiers mouseProtocolBypassModifiers = Modifier::Shift;
+    Modifiers mouseBlockSelectionModifiers = Modifier::Control;
     LineOffset copyLastMarkRangeOffset = LineOffset(0);
     bool visualizeSelectedWord = true;
     std::chrono::milliseconds highlightTimeout = std::chrono::milliseconds { 150 };
@@ -71,8 +88,11 @@ struct Settings
     };
     PrimaryScreen primaryScreen;
 
+    bool fromSearchIntoInsertMode = true;
+    bool isInsertAfterYank = false;
+
     // TODO: we could configure also the number of lines of the host writable statusline and indicator
     // statusline.
 };
 
-} // namespace terminal
+} // namespace vtbackend

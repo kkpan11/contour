@@ -1,17 +1,7 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtpty/ConPty.h>
+
+#include <crispy/BufferObject.h>
 
 #include <utility>
 
@@ -45,7 +35,7 @@ string GetLastErrorAsString()
 }
 } // anonymous namespace
 
-namespace terminal
+namespace vtpty
 {
 
 struct ConPtySlave: public PtySlaveDummy
@@ -74,7 +64,7 @@ ConPty::ConPty(PageSize const& windowSize): _size { windowSize }
 
 ConPty::~ConPty()
 {
-    PtyLog()("~ConPty()");
+    ptyLog()("~ConPty()");
     close();
 }
 
@@ -85,7 +75,7 @@ bool ConPty::isClosed() const noexcept
 
 void ConPty::start()
 {
-    PtyLog()("Starting ConPTY");
+    ptyLog()("Starting ConPTY");
     assert(!_slave);
 
     _slave = make_unique<ConPtySlave>(_output);
@@ -117,9 +107,15 @@ void ConPty::start()
         throw runtime_error { GetLastErrorAsString() };
 }
 
+void ConPty::waitForClosed()
+{
+    while (!isClosed())
+        Sleep(1000);
+}
+
 void ConPty::close()
 {
-    PtyLog()("ConPty.close()");
+    ptyLog()("ConPty.close()");
     auto const _ = std::lock_guard { _mutex };
 
     if (_master != INVALID_HANDLE_VALUE)
@@ -141,20 +137,23 @@ void ConPty::close()
     }
 }
 
-Pty::ReadResult ConPty::read(crispy::BufferObject<char>& buffer,
-                             std::chrono::milliseconds timeout,
-                             size_t size)
+std::optional<Pty::ReadResult> ConPty::read(crispy::buffer_object<char>& buffer,
+                                            std::optional<std::chrono::milliseconds> timeout,
+                                            size_t size)
 {
     // TODO: wait for timeout time at most AND got woken up upon wakeupReader() invokcation.
     (void) timeout;
 
-    auto const n = static_cast<DWORD>(min(size, buffer.bytesAvailable()));
+    auto const n = static_cast<DWORD>(std::min(size, buffer.bytesAvailable()));
 
     DWORD nread {};
     if (!ReadFile(_input, buffer.hotEnd(), n, &nread, nullptr))
         return nullopt;
 
-    return { tuple { string_view { buffer.hotEnd(), nread }, false } };
+    if (ptyInLog)
+        ptyInLog()("{} received: \"{}\"", "master", crispy::escape(buffer.hotEnd(), buffer.hotEnd() + nread));
+
+    return ReadResult { .data = string_view { buffer.hotEnd(), nread }, .fromStdoutFastPipe = false };
 }
 
 void ConPty::wakeupReader()
@@ -163,13 +162,22 @@ void ConPty::wakeupReader()
     // How can we make ReadFile() return early? We could maybe WriteFile() to it?
 }
 
-int ConPty::write(char const* buf, size_t size)
+int ConPty::write(std::string_view data)
 {
+    auto const* buf = data.data();
+    auto const size = data.size();
+
     DWORD nwritten {};
     if (WriteFile(_output, buf, static_cast<DWORD>(size), &nwritten, nullptr))
+    {
+        ptyOutLog()("Sending bytes: \"{}\"", crispy::escape(data.data(), data.data() + nwritten));
         return static_cast<int>(nwritten);
+    }
     else
+    {
+        ptyOutLog()("PTY write of {} bytes failed.\n", size);
         return -1;
+    }
 }
 
 PageSize ConPty::pageSize() const noexcept
@@ -177,7 +185,7 @@ PageSize ConPty::pageSize() const noexcept
     return _size;
 }
 
-void ConPty::resizeScreen(PageSize cells, std::optional<crispy::ImageSize> pixels)
+void ConPty::resizeScreen(PageSize cells, std::optional<ImageSize> pixels)
 {
     if (!_slave)
         return;
@@ -200,4 +208,4 @@ PtySlave& ConPty::slave() noexcept
     return *_slave;
 }
 
-} // namespace terminal
+} // namespace vtpty

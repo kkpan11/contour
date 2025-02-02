@@ -1,33 +1,21 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/MockTerm.h>
 #include <vtbackend/Terminal.h>
 #include <vtbackend/cell/CellConfig.h>
 #include <vtbackend/logging.h>
 
+#include <vtparser/ParserEvents.h>
+
 #include <vtpty/MockViewPty.h>
 
 #include <crispy/App.h>
+#include <crispy/BufferObject.h>
 #include <crispy/CLI.h>
 #include <crispy/utils.h>
 
-#include <fmt/format.h>
-
+#include <format>
 #include <iostream>
 #include <optional>
-#include <random>
 #include <thread>
 
 #include <libtermbench/termbench.h>
@@ -71,32 +59,31 @@ int baseBenchmark(Writer&& writer, BenchOptions options, string_view title)
         options.sgr = true;
     }
 
-    auto const titleText = fmt::format("Running benchmark: {} (test size: {} MB)", title, options.testSizeMB);
+    auto const titleText = std::format("Running benchmark: {} (test size: {} MB)", title, options.testSizeMB);
 
     cout << titleText << '\n' << string(titleText.size(), '=') << '\n';
 
-    auto tbp = contour::termbench::Benchmark { std::forward<Writer>(writer),
-                                               options.testSizeMB,
-                                               80,
-                                               24,
-                                               [&](contour::termbench::Test const& test) {
-                                                   cout << fmt::format("Running test {} ...\n", test.name);
-                                               } };
+    auto tbp = termbench::Benchmark { std::forward<Writer>(writer),
+                                      options.testSizeMB,
+                                      termbench::TerminalSize { 80, 24 },
+                                      [&](termbench::Test const& test) {
+                                          cout << std::format("Running test {} ...\n", test.name);
+                                      } };
 
     if (options.manyLines)
-        tbp.add(contour::termbench::tests::many_lines());
+        tbp.add(termbench::tests::many_lines());
 
     if (options.longLines)
-        tbp.add(contour::termbench::tests::long_lines());
+        tbp.add(termbench::tests::long_lines());
 
     if (options.sgr)
     {
-        tbp.add(contour::termbench::tests::sgr_fg_lines());
-        tbp.add(contour::termbench::tests::sgr_fgbg_lines());
+        tbp.add(termbench::tests::sgr_fg_lines());
+        tbp.add(termbench::tests::sgr_fgbg_lines());
     }
 
     if (options.binary)
-        tbp.add(contour::termbench::tests::binary());
+        tbp.add(termbench::tests::binary());
 
     tbp.runAll();
 
@@ -111,13 +98,13 @@ int baseBenchmark(Writer&& writer, BenchOptions options, string_view title)
 
 namespace CLI = crispy::cli;
 
-class ContourHeadlessBench: public crispy::App
+class ContourHeadlessBench: public crispy::app
 {
   public:
     ContourHeadlessBench():
-        App("bench-headless", "Contour Headless Benchmark", CONTOUR_VERSION_STRING, "Apache-2.0")
+        app("bench-headless", "Contour Headless Benchmark", CONTOUR_VERSION_STRING, "Apache-2.0")
     {
-        using Project = crispy::cli::about::Project;
+        using Project = crispy::cli::about::project;
         crispy::cli::about::registerProjects(
 #if defined(CONTOUR_BUILD_WITH_MIMALLOC)
             Project { "mimalloc", "", "" },
@@ -135,37 +122,37 @@ class ContourHeadlessBench: public crispy::App
         if (logFilterString)
         {
             logstore::configure(logFilterString);
-            crispy::App::customizeLogStoreOutput();
+            crispy::app::customizeLogStoreOutput();
         }
     }
 
-    [[nodiscard]] crispy::cli::Command parameterDefinition() const override
+    [[nodiscard]] crispy::cli::command parameterDefinition() const override
     {
-        auto const perfOptions = CLI::OptionList {
-            CLI::Option { "size", CLI::Value { 32u }, "Number of megabyte to process per test.", "MB" },
-            CLI::Option { "cat", CLI::Value { false }, "Enable cat-style short-line ASCII stream test." },
-            CLI::Option { "long", CLI::Value { false }, "Enable long-line ASCII stream test." },
-            CLI::Option { "sgr", CLI::Value { false }, "Enable SGR stream test." },
-            CLI::Option { "binary", CLI::Value { false }, "Enable binary stream test." },
+        auto const perfOptions = CLI::option_list {
+            CLI::option { "size", CLI::value { 32u }, "Number of megabyte to process per test.", "MB" },
+            CLI::option { "cat", CLI::value { false }, "Enable cat-style short-line ASCII stream test." },
+            CLI::option { "long", CLI::value { false }, "Enable long-line ASCII stream test." },
+            CLI::option { "sgr", CLI::value { false }, "Enable SGR stream test." },
+            CLI::option { "binary", CLI::value { false }, "Enable binary stream test." },
         };
 
-        return CLI::Command {
+        return CLI::command {
             "bench-headless",
             "Contour Terminal Emulator " CONTOUR_VERSION_STRING
             " - https://github.com/contour-terminal/contour/ ;-)",
-            CLI::OptionList {},
-            CLI::CommandList {
-                CLI::Command { "help", "Shows this help and exits." },
-                CLI::Command { "meta", "Shows some terminal backend meta information and exits." },
-                CLI::Command { "version", "Shows the version and exits." },
-                CLI::Command { "license",
+            CLI::option_list {},
+            CLI::command_list {
+                CLI::command { "help", "Shows this help and exits." },
+                CLI::command { "meta", "Shows some terminal backend meta information and exits." },
+                CLI::command { "version", "Shows the version and exits." },
+                CLI::command { "license",
                                "Shows the license, and project URL of the used projects and Contour." },
-                CLI::Command { "grid",
+                CLI::command { "grid",
                                "Performs performance tests utilizing the full grid including VT parser.",
                                perfOptions },
-                CLI::Command {
+                CLI::command {
                     "parser", "Performs performance tests utilizing the VT parser only.", perfOptions },
-                CLI::Command {
+                CLI::command {
                     "pty",
                     "Performs performance tests utilizing the underlying operating system's PTY only." },
             }
@@ -175,17 +162,17 @@ class ContourHeadlessBench: public crispy::App
     static int showMetaInfo()
     {
         // Show any interesting meta information.
-        fmt::print("SimpleCell  : {} bytes\n", sizeof(terminal::SimpleCell));
-        fmt::print("CompactCell : {} bytes\n", sizeof(terminal::CompactCell));
-        fmt::print("CellExtra   : {} bytes\n", sizeof(terminal::CellExtra));
-        fmt::print("CellFlags   : {} bytes\n", sizeof(terminal::CellFlags));
-        fmt::print("Color       : {} bytes\n", sizeof(terminal::Color));
+        std::cout << std::format("SimpleCell  : {} bytes\n", sizeof(vtbackend::SimpleCell));
+        std::cout << std::format("CompactCell : {} bytes\n", sizeof(vtbackend::CompactCell));
+        std::cout << std::format("CellExtra   : {} bytes\n", sizeof(vtbackend::CellExtra));
+        std::cout << std::format("CellFlags   : {} bytes\n", sizeof(vtbackend::CellFlags));
+        std::cout << std::format("Color       : {} bytes\n", sizeof(vtbackend::Color));
         return EXIT_SUCCESS;
     }
 
     BenchOptions benchOptionsFor(string_view kind)
     {
-        auto const prefix = fmt::format("bench-headless.{}.", kind);
+        auto const prefix = std::format("bench-headless.{}.", kind);
         auto opts = BenchOptions {};
         opts.testSizeMB = parameters().uint(prefix + "size");
         opts.manyLines = parameters().boolean(prefix + "cat");
@@ -197,12 +184,12 @@ class ContourHeadlessBench: public crispy::App
 
     int benchGrid()
     {
-        auto pageSize = terminal::PageSize { terminal::LineCount(25), terminal::ColumnCount(80) };
+        auto pageSize = vtbackend::PageSize { vtbackend::LineCount(25), vtbackend::ColumnCount(80) };
         size_t const ptyReadBufferSize = 1'000'000;
-        auto maxHistoryLineCount = terminal::LineCount(4000);
-        auto vt = terminal::MockTerm<terminal::MockViewPty>(pageSize, maxHistoryLineCount, ptyReadBufferSize);
-        auto* pty = dynamic_cast<terminal::MockViewPty*>(&vt.terminal.device());
-        vt.terminal.setMode(terminal::DECMode::AutoWrap, true);
+        auto maxHistoryLineCount = vtbackend::LineCount(4000);
+        auto vt = vtbackend::MockTerm<vtpty::MockViewPty>(pageSize, maxHistoryLineCount, ptyReadBufferSize);
+        auto* pty = dynamic_cast<vtpty::MockViewPty*>(&vt.terminal.device());
+        vt.terminal.setMode(vtbackend::DECMode::AutoWrap, true);
 
         auto const rv = baseBenchmark(
             [&](char const* a, size_t b) -> bool {
@@ -219,25 +206,25 @@ class ContourHeadlessBench: public crispy::App
             benchOptionsFor("grid"),
             "terminal with screen buffer");
         if (rv == EXIT_SUCCESS)
-            cout << fmt::format("{:>12}: {}\n\n", "history size", *vt.terminal.maxHistoryLineCount());
+            cout << std::format("{:>12}: {}\n\n", "history size", *vt.terminal.maxHistoryLineCount());
         return rv;
     }
 
     static int benchPTY()
     {
         using std::chrono::steady_clock;
-        using terminal::ColumnCount;
-        using terminal::createPty;
-        using terminal::LineCount;
-        using terminal::PageSize;
-        using terminal::Pty;
+        using vtpty::ColumnCount;
+        using vtpty::createPty;
+        using vtpty::LineCount;
+        using vtpty::PageSize;
+        using vtpty::Pty;
 
         // Benchmark configuration
         // TODO make these values CLI configurable.
         auto constexpr WritesPerLoop = 1;
         auto constexpr PtyWriteSize = 4096;
         auto constexpr PtyReadSize = 4096;
-        auto const BenchTime = chrono::seconds(10);
+        auto const benchTime = chrono::seconds(10);
 
         // Setup benchmark
         std::string const text = createText(PtyWriteSize);
@@ -246,7 +233,7 @@ class ContourHeadlessBench: public crispy::App
         auto& ptySlave = pty.slave();
         (void) ptySlave.configure();
 
-        auto bufferObjectPool = crispy::BufferObjectPool<char>(4llu * 1024 * 1024);
+        auto bufferObjectPool = crispy::buffer_object_pool<char>(4llu * 1024 * 1024);
         auto bufferObject = bufferObjectPool.allocateBufferObject();
 
         auto bytesTransferred = uint64_t { 0 };
@@ -257,7 +244,7 @@ class ContourHeadlessBench: public crispy::App
                 auto const readResult = pty.read(*bufferObject, std::chrono::seconds(2), PtyReadSize);
                 if (!readResult)
                     break;
-                auto const dataChunk = get<string_view>(readResult.value());
+                auto const dataChunk = readResult.value().data;
                 if (dataChunk.empty())
                     break;
                 bytesTransferred += dataChunk.size();
@@ -270,17 +257,17 @@ class ContourHeadlessBench: public crispy::App
         } };
 
         // Perform benchmark
-        fmt::print("Running PTY benchmark ...\n");
+        std::cout << std::format("Running PTY benchmark ...\n");
         auto const startTime = steady_clock::now();
         auto stopTime = startTime;
-        while (stopTime - startTime < BenchTime)
+        while (stopTime - startTime < benchTime)
         {
             for (int i = 0; i < WritesPerLoop; ++i)
                 (void) ptySlave.write(text);
             stopTime = steady_clock::now();
         }
 
-        cleanupReader.perform();
+        cleanupReader.run();
 
         // Create summary
         auto const elapsedTime = stopTime - startTime;
@@ -289,27 +276,31 @@ class ContourHeadlessBench: public crispy::App
         auto const mbPerSecs =
             static_cast<long double>(bytesTransferred) / static_cast<long double>(secs.count());
 
-        fmt::print("\n");
-        fmt::print("PTY stdout throughput bandwidth test\n");
-        fmt::print("====================================\n\n");
-        fmt::print("Writes per loop        : {}\n", WritesPerLoop);
-        fmt::print("PTY write size         : {}\n", PtyWriteSize);
-        fmt::print("PTY read size          : {}\n", PtyReadSize);
-        fmt::print("Test time              : {}.{:03} seconds\n", msecs.count() / 1000, msecs.count() % 1000);
-        fmt::print("Data transferred       : {}\n", crispy::humanReadableBytes(bytesTransferred));
-        fmt::print("Reader loop iterations : {}\n", loopIterations);
-        fmt::print("Average size per read  : {}\n",
-                   crispy::humanReadableBytes(static_cast<long double>(bytesTransferred)
-                                              / static_cast<long double>(loopIterations)));
-        fmt::print("Transfer speed         : {} per second\n", crispy::humanReadableBytes(mbPerSecs));
+        std::cout << std::format("\n");
+        std::cout << std::format("PTY stdout throughput bandwidth test\n");
+        std::cout << std::format("====================================\n\n");
+        std::cout << std::format("Writes per loop        : {}\n", WritesPerLoop);
+        std::cout << std::format("PTY write size         : {}\n", PtyWriteSize);
+        std::cout << std::format("PTY read size          : {}\n", PtyReadSize);
+        std::cout << std::format(
+            "Test time              : {}.{:03} seconds\n", msecs.count() / 1000, msecs.count() % 1000);
+        std::cout << std::format("Data transferred       : {}\n",
+                                 crispy::humanReadableBytes(bytesTransferred));
+        std::cout << std::format("Reader loop iterations : {}\n", loopIterations);
+        std::cout << std::format(
+            "Average size per read  : {}\n",
+            crispy::humanReadableBytes(static_cast<uint64_t>(static_cast<long double>(bytesTransferred)
+                                                             / static_cast<long double>(loopIterations))));
+        std::cout << std::format("Transfer speed         : {} per second\n",
+                                 crispy::humanReadableBytes(static_cast<uint64_t>(mbPerSecs)));
 
         return EXIT_SUCCESS;
     }
 
     int benchParserOnly()
     {
-        auto po = terminal::NullParserEvents {};
-        auto parser = terminal::parser::Parser<terminal::ParserEvents> { po };
+        auto po = vtparser::NullParserEvents {};
+        auto parser = vtparser::Parser<vtparser::ParserEvents> { po };
         return baseBenchmark(
             [&](char const* a, size_t b) -> bool {
                 parser.parseFragment(string_view(a, b));

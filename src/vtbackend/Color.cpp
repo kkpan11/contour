@@ -1,25 +1,12 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Color.h>
 
 #include <crispy/overloaded.h>
-
-#include <cstdio>
+#include <crispy/utils.h>
 
 using namespace std;
 
-namespace terminal
+namespace vtbackend
 {
 
 string to_string(Color color)
@@ -27,7 +14,7 @@ string to_string(Color color)
     using Type = ColorType;
     switch (color.type())
     {
-        case Type::Indexed: return fmt::format("{}", color.index());
+        case Type::Indexed: return std::format("{}", color.index());
         case Type::Bright:
             switch (color.index())
             {
@@ -40,8 +27,8 @@ string to_string(Color color)
                 case 6: return "bright-cyan";
                 case 7: return "bright-white";
                 case 8: return "bright-DEFAULT";
+                default: return "?";
             }
-            return "?";
         case Type::Default:
             switch (color.index())
             {
@@ -54,10 +41,10 @@ string to_string(Color color)
                 case 6: return "cyan";
                 case 7: return "white";
                 case 8: return "DEFAULT";
+                default: return "?";
             }
-            return "?";
         case Type::RGB:
-            return fmt::format("#{:02X}{:02X}{:02X}", color.rgb().red, color.rgb().green, color.rgb().blue);
+            return std::format("'#{:02X}{:02X}{:02X}'", color.rgb().red, color.rgb().green, color.rgb().blue);
         case Type::Undefined: break;
     }
     return "?";
@@ -77,7 +64,7 @@ string to_string(IndexedColor color)
         case IndexedColor::White: return "white";
         case IndexedColor::Default: return "DEFAULT";
     }
-    return fmt::format("IndexedColor:{}", static_cast<unsigned>(color));
+    return std::format("IndexedColor:{}", static_cast<unsigned>(color));
 }
 
 string to_string(BrightColor color)
@@ -93,7 +80,7 @@ string to_string(BrightColor color)
         case BrightColor::Cyan: return "bright-cyan";
         case BrightColor::White: return "bright-white";
     }
-    return fmt::format("BrightColor:{}", static_cast<unsigned>(color));
+    return std::format("BrightColor:{}", static_cast<unsigned>(color));
 }
 
 RGBColor::RGBColor(std::string const& hexCode): RGBColor()
@@ -134,12 +121,55 @@ RGBAColor& RGBAColor::operator=(string const& hexCode)
 
 string to_string(RGBColor c)
 {
-    return fmt::format("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
+    return std::format("'#{:02X}{:02X}{:02X}'", c.red, c.green, c.blue);
 }
 
 string to_string(RGBAColor c)
 {
-    return fmt::format("#{:02X}{:02X}{:02X}{:02X}", c.red(), c.green(), c.blue(), c.alpha());
+    return std::format("'#{:02X}{:02X}{:02X}{:02X}'", c.red(), c.green(), c.blue(), c.alpha());
 }
 
-} // namespace terminal
+optional<RGBColor> parseColor(string_view const& value)
+{
+    try
+    {
+        // "rgb:RR/GG/BB"
+        //  0123456789a
+        if (value.size() == 12 && value.substr(0, 4) == "rgb:" && value[6] == '/' && value[9] == '/')
+        {
+            auto const r = crispy::to_integer<16, uint8_t>(value.substr(4, 2));
+            auto const g = crispy::to_integer<16, uint8_t>(value.substr(7, 2));
+            auto const b = crispy::to_integer<16, uint8_t>(value.substr(10, 2));
+            return RGBColor { r.value(), g.value(), b.value() };
+        }
+
+        // "#RRGGBB"
+        if (value.size() == 7 && value[0] == '#')
+        {
+            auto const r = crispy::to_integer<16, uint8_t>(value.substr(1, 2));
+            auto const g = crispy::to_integer<16, uint8_t>(value.substr(3, 2));
+            auto const b = crispy::to_integer<16, uint8_t>(value.substr(5, 2));
+            return RGBColor { r.value(), g.value(), b.value() };
+        }
+
+        // "#RGB"
+        if (value.size() == 4 && value[0] == '#')
+        {
+            auto const r = crispy::to_integer<16, uint8_t>(value.substr(1, 1));
+            auto const g = crispy::to_integer<16, uint8_t>(value.substr(2, 1));
+            auto const b = crispy::to_integer<16, uint8_t>(value.substr(3, 1));
+            auto const rr = static_cast<uint8_t>(r.value() << 4);
+            auto const gg = static_cast<uint8_t>(g.value() << 4);
+            auto const bb = static_cast<uint8_t>(b.value() << 4);
+            return RGBColor { rr, gg, bb };
+        }
+
+        return std::nullopt;
+    }
+    catch (...)
+    {
+        // that will be a formatting error in stoul() then.
+        return std::nullopt;
+    }
+}
+} // namespace vtbackend

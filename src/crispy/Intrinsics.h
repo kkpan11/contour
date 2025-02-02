@@ -1,16 +1,4 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2023 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #if defined(__x86_64__)
@@ -82,9 +70,6 @@ using Intrinsics = PlatformIntrinsics<__m128i>;
 template <>
 struct PlatformIntrinsics<int64x2_t>
 {
-    // The following inline functions (in its initial version) were borrowed from:
-    // https://github.com/f1ed/emp/blob/master/emp-tool/utils/block.h
-
     using m128i = int64x2_t;
 
     static inline m128i setzero() noexcept { return vreinterpretq_s64_s32(vdupq_n_s32(0)); }

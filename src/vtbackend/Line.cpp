@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/GraphicsAttributes.h>
 #include <vtbackend/Line.h>
 #include <vtbackend/primitives.h>
@@ -23,29 +11,29 @@ using std::get;
 using std::holds_alternative;
 using std::min;
 
-namespace terminal
+namespace vtbackend
 {
 
-template <typename Cell>
+template <CellConcept Cell>
 typename Line<Cell>::InflatedBuffer Line<Cell>::reflow(ColumnCount newColumnCount)
 {
-    using crispy::Comparison;
+    using crispy::comparison;
     if (isTrivialBuffer())
     {
         switch (crispy::strongCompare(newColumnCount, ColumnCount::cast_from(trivialBuffer().text.size())))
         {
-            case Comparison::Greater: trivialBuffer().displayWidth = newColumnCount; return {};
-            case Comparison::Equal: return {};
-            case Comparison::Less:;
+            case comparison::Greater: trivialBuffer().displayWidth = newColumnCount; return {};
+            case comparison::Equal: return {};
+            case comparison::Less:;
         }
     }
     auto& buffer = inflatedBuffer();
     // TODO: Efficiently handle TrivialBuffer-case.
     switch (crispy::strongCompare(newColumnCount, size()))
     {
-        case Comparison::Equal: break;
-        case Comparison::Greater: buffer.resize(unbox<size_t>(newColumnCount)); break;
-        case Comparison::Less: {
+        case comparison::Equal: break;
+        case comparison::Greater: buffer.resize(unbox<size_t>(newColumnCount)); break;
+        case comparison::Less: {
             // TODO: properly handle wide character cells
             // - when cutting in the middle of a wide char, the wide char gets wrapped and an empty
             //   cell needs to be injected to match the expected column width.
@@ -68,14 +56,11 @@ typename Line<Cell>::InflatedBuffer Line<Cell>::reflow(ColumnCount newColumnCoun
                 buffer.erase(reflowStart, buffer.end());
                 assert(size() == newColumnCount);
 #if 0
-                if (removedColumns.size() > 0 &&
-                        std::any_of(removedColumns.begin(), removedColumns.end(),
-                            [](Cell const& x)
-                            {
-                                if (!x.empty())
-                                    fmt::print("non-empty cell in reflow: {}\n", x.toUtf8());
-                                return !x.empty();
-                            }))
+                if (removedColumns.size() > 0 && std::ranges::any_of(removedColumns, [](Cell const& x) {
+                        if (!x.empty())
+                            std::cout << std::format("non-empty cell in reflow: {}\n", x.toUtf8());
+                        return !x.empty();
+                    }))
                     printf("Wrapping around\n");
 #endif
                 return removedColumns;
@@ -91,7 +76,7 @@ typename Line<Cell>::InflatedBuffer Line<Cell>::reflow(ColumnCount newColumnCoun
     return {};
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 inline void Line<Cell>::resize(ColumnCount count)
 {
     assert(*count >= 0);
@@ -107,7 +92,7 @@ inline void Line<Cell>::resize(ColumnCount count)
     inflatedBuffer().resize(unbox<size_t>(count));
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 gsl::span<Cell const> Line<Cell>::trim_blank_right() const noexcept
 {
     auto i = inflatedBuffer().data();
@@ -119,7 +104,7 @@ gsl::span<Cell const> Line<Cell>::trim_blank_right() const noexcept
     return gsl::make_span(i, e);
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 std::string Line<Cell>::toUtf8() const
 {
     if (isTrivialBuffer())
@@ -142,13 +127,13 @@ std::string Line<Cell>::toUtf8() const
     return str;
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 std::string Line<Cell>::toUtf8Trimmed() const
 {
     return toUtf8Trimmed(true, true);
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 std::string Line<Cell>::toUtf8Trimmed(bool stripLeadingSpaces, bool stripTrailingSpaces) const
 {
     std::string output = toUtf8();
@@ -168,7 +153,7 @@ std::string Line<Cell>::toUtf8Trimmed(bool stripLeadingSpaces, bool stripTrailin
     return output;
 }
 
-template <typename Cell>
+template <CellConcept Cell>
 InflatedLineBuffer<Cell> inflate(TrivialLineBuffer const& input)
 {
     static constexpr char32_t ReplacementCharacter { 0xFFFD };
@@ -193,10 +178,11 @@ InflatedLineBuffer<Cell> inflate(TrivialLineBuffer const& input)
         {
             while (gapPending > 0)
             {
-                columns.emplace_back(Cell { input.textAttributes, input.hyperlink });
+                columns.emplace_back(input.textAttributes.with(CellFlag::WideCharContinuation),
+                                     input.hyperlink);
                 --gapPending;
             }
-            auto const charWidth = unicode::width(nextChar);
+            auto const charWidth = static_cast<int>(unicode::width(nextChar));
             columns.emplace_back(Cell {});
             columns.back().setHyperlink(input.hyperlink);
             columns.back().write(input.textAttributes, nextChar, static_cast<uint8_t>(charWidth));
@@ -227,16 +213,17 @@ InflatedLineBuffer<Cell> inflate(TrivialLineBuffer const& input)
     }
 
     assert(columns.size() == unbox<size_t>(input.usedColumns));
+    assert(unbox(input.displayWidth) > 0);
 
     while (columns.size() < unbox<size_t>(input.displayWidth))
         columns.emplace_back(Cell { input.fillAttributes });
 
     return columns;
 }
-} // end namespace terminal
+} // end namespace vtbackend
 
 #include <vtbackend/cell/CompactCell.h>
-template class terminal::Line<terminal::CompactCell>;
+template class vtbackend::Line<vtbackend::CompactCell>;
 
 #include <vtbackend/cell/SimpleCell.h>
-template class terminal::Line<terminal::SimpleCell>;
+template class vtbackend::Line<vtbackend::SimpleCell>;

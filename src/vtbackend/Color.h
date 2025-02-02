@@ -1,35 +1,18 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/defines.h>
 
-#include <fmt/format.h>
-
 #include <algorithm>
-#include <array>
-#include <cassert>
 #include <cmath>
 #include <cstdint>
-#include <initializer_list>
+#include <format>
 #include <optional>
 #include <ostream>
 #include <string>
-#include <utility>
 #include <variant>
 
-namespace terminal
+namespace vtbackend
 {
 
 enum class IndexedColor : uint8_t
@@ -47,7 +30,7 @@ enum class IndexedColor : uint8_t
 };
 
 //! Bright colors. As introduced by aixterm, bright versions of standard 3bit colors.
-enum class BrightColor
+enum class BrightColor : uint8_t
 {
     Black = 0,
     Red = 1,
@@ -88,6 +71,8 @@ struct RGBColor
     explicit RGBColor(std::string const& hexCode);
 
     RGBColor& operator=(std::string const& hexCode);
+
+    constexpr auto operator<=>(RGBColor const&) const noexcept = default;
 };
 
 constexpr RGBColor operator*(RGBColor c, float s) noexcept
@@ -121,16 +106,6 @@ inline double distance(RGBColor e1, RGBColor e2) noexcept
 constexpr RGBColor operator"" _rgb(unsigned long long value)
 {
     return RGBColor { static_cast<uint32_t>(value) };
-}
-
-constexpr bool operator==(RGBColor a, RGBColor b) noexcept
-{
-    return a.red == b.red && a.green == b.green && a.blue == b.blue;
-}
-
-constexpr bool operator!=(RGBColor a, RGBColor b) noexcept
-{
-    return !(a == b);
 }
 
 struct RGBColorPair
@@ -226,17 +201,9 @@ struct RGBAColor
 
     // NOLINTNEXTLINE(readability-identifier-naming)
     constexpr static inline auto White = uint32_t(0xFF'FF'FF'FF);
+
+    constexpr auto operator<=>(RGBAColor const&) const noexcept = default;
 };
-
-constexpr bool operator==(RGBAColor a, RGBAColor b) noexcept
-{
-    return a.value == b.value;
-}
-
-constexpr bool operator!=(RGBAColor a, RGBAColor b) noexcept
-{
-    return !(a == b);
-}
 // }}}
 
 // {{{ Color
@@ -364,7 +331,7 @@ std::string to_string(BrightColor color);
 std::string to_string(RGBColor c);
 std::string to_string(RGBAColor c);
 
-inline std::ostream& operator<<(std::ostream& os, terminal::Color value)
+inline std::ostream& operator<<(std::ostream& os, vtbackend::Color value)
 {
     return os << to_string(value);
 }
@@ -389,15 +356,15 @@ using CellRGBColor = std::variant<RGBColor, CellForegroundColor, CellBackgroundC
 
 struct CellRGBColorPair
 {
-    CellRGBColor foreground;
-    CellRGBColor background;
+    CellRGBColor foreground = CellForegroundColor {};
+    CellRGBColor background = CellBackgroundColor {};
 };
 
 struct CellRGBColorAndAlphaPair
 {
-    CellRGBColor foreground;
+    CellRGBColor foreground = CellForegroundColor {};
     float foregroundAlpha = 1.0f;
-    CellRGBColor background;
+    CellRGBColor background = CellBackgroundColor {};
     float backgroundAlpha = 1.0f;
 };
 
@@ -427,89 +394,58 @@ constexpr Opacity& operator--(Opacity& value) noexcept
 }
 // }}}
 
-} // namespace terminal
+std::optional<RGBColor> parseColor(std::string_view const& value);
 
-namespace fmt // {{{
-{
+} // namespace vtbackend
+
+// {{{ fmtlib custom formatter
 template <>
-struct formatter<terminal::Color>
+struct std::formatter<vtbackend::Color>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::Color value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::Color value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}", to_string(value));
+        return formatter<std::string>::format(to_string(value), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::RGBColor>
+struct std::formatter<vtbackend::RGBColor>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::RGBColor value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::RGBColor value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}", to_string(value));
+        return formatter<std::string>::format(to_string(value), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::RGBAColor>
+struct std::formatter<vtbackend::RGBAColor>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::RGBAColor value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::RGBAColor value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}", to_string(value));
+        return formatter<std::string>::format(to_string(value), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::CellRGBColor>
+struct std::formatter<vtbackend::CellRGBColor>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::CellRGBColor value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::CellRGBColor value, FormatContext& ctx)
-    {
-        if (std::holds_alternative<terminal::CellForegroundColor>(value))
-            return fmt::format_to(ctx.out(), "CellForeground");
-        else if (std::holds_alternative<terminal::CellBackgroundColor>(value))
-            return fmt::format_to(ctx.out(), "CellBackground");
+        if (std::holds_alternative<vtbackend::CellForegroundColor>(value))
+            return formatter<std::string>::format("CellForeground", ctx);
+        else if (std::holds_alternative<vtbackend::CellBackgroundColor>(value))
+            return formatter<std::string>::format("CellBackground", ctx);
         else
-            return fmt::format_to(ctx.out(), "{}", std::get<terminal::RGBColor>(value));
+            return formatter<std::string>::format(to_string(std::get<vtbackend::RGBColor>(value)), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::RGBColorPair>
+struct std::formatter<vtbackend::RGBColorPair>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::RGBColorPair value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::RGBColorPair value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}/{}", value.foreground, value.background);
+        return formatter<std::string>::format(std::format("{}/{}", value.foreground, value.background), ctx);
     }
 };
-
-} // namespace fmt
 // }}}

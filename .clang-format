@@ -81,7 +81,7 @@ IncludeCategories:
     Priority:  5
   - Regex:     '^<(crispy)/'
     Priority:  6
-  - Regex:     '^<(unicode)/'
+  - Regex:     '^<(libunicode)/'
     Priority:  40
   - Regex:     '^<(fmt)/'
     Priority:  42
@@ -95,7 +95,7 @@ IncludeCategories:
     Priority:  52
   - Regex:     '^<harfbuzz/'
     Priority:  53
-  - Regex:     '^<(QtCore|QtGui|QtWidgets|QtQml|QtQuick|QtNetwork|QtMultimedia)/'
+  - Regex:     '^<(QtCore|QtGui|QtDBus|QtWidgets|QtQml|QtQuick|QtNetwork|QtMultimedia)/'
     Priority:  64
   - Regex:     '^<catch2/'
     Priority:  70

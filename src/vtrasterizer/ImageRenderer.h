@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Image.h>
@@ -22,18 +10,16 @@
 #include <crispy/point.h>
 #include <crispy/size.h>
 
-#include <memory>
-#include <unordered_map>
 #include <vector>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 // NB: Ensure this struct does NOT contain padding (or adapt strong hash creation).
 struct ImageFragmentKey
 {
-    ImageId imageId;
-    CellLocation offset;
+    vtbackend::ImageId imageId;
+    vtbackend::CellLocation offset;
     ImageSize size;
 
     bool operator==(ImageFragmentKey const& b) const noexcept
@@ -63,11 +49,11 @@ class ImageRenderer: public Renderable, public TextRendererEvents
     /// Reconfigures the slicing properties of existing images.
     void setCellSize(ImageSize cellSize);
 
-    void renderImage(crispy::Point pos, ImageFragment const& fragment);
+    void renderImage(crispy::point pos, vtbackend::ImageFragment const& fragment);
 
     /// notify underlying cache that this fragment is not going to be rendered anymore, maybe freeing up some
     /// GPU caches.
-    void discardImage(ImageId imageId);
+    void discardImage(vtbackend::ImageId imageId);
 
     void inspect(std::ostream& output) const override;
 
@@ -78,7 +64,7 @@ class ImageRenderer: public Renderable, public TextRendererEvents
     void onAfterRenderingText() override;
 
   private:
-    AtlasTileAttributes const* getOrCreateCachedTileAttributes(ImageFragment const& fragment);
+    AtlasTileAttributes const* getOrCreateCachedTileAttributes(vtbackend::ImageFragment const& fragment);
     std::vector<atlas::RenderTile> _pendingRenderTilesAboveText;
 
     // private data
@@ -86,4 +72,4 @@ class ImageRenderer: public Renderable, public TextRendererEvents
     ImageSize _cellSize;
 };
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

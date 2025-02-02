@@ -1,12 +1,12 @@
-# Installation
+ Installation
 
 `contour` is packaged and available for installation on multiple distributions.
 
 ## Windows 10 or newer
 
-Please download Contour for Windows (the `.msi` file) from our release page, and double click on it to install.
+Please download Contour for Windows (the `.msi` file) from our [release page](https://github.com/contour-terminal/contour/releases/latest/), and double click on it to install.
 
-## Mac OS/X
+## macOS
 
 ```sh
 brew install contour
@@ -22,11 +22,11 @@ sudo dnf install contour-terminal
 
 ## Arch Linux
 
-Please use the AUR, at [https://aur.archlinux.org/packages/contour-git](https://aur.archlinux.org/packages/contour-git).
+Please use the AUR, at [https://aur.archlinux.org/packages/contour-git](https://aur.archlinux.org/packages/contour).
 
 ## Ubuntu Linux
 
-Please download Contour for Ubuntu Linux (the `.deb` files) from our official release page,
+Please download Contour for Ubuntu Linux (the `.deb` files) from our official [release](https://github.com/contour-terminal/contour/releases) page,
 and then use the following command to install:
 
 ```sh
@@ -41,7 +41,7 @@ sudo dpkg -i ~/Downloads/contour-0.3.12.262-UBUNTU_VERSION-ARCH.ddeb
 
 ## Flatpak
 
-Click the following button install Contour from the Flathub store.
+Contour is available at the Flathub store.
 
 [![Get it on Flathub](https://raw.githubusercontent.com/flatpak-design-team/flathub-mockups/master/assets/download-button/download.svg?sanitize=true)](https://flathub.org/apps/details/org.contourterminal.Contour)
 
@@ -49,9 +49,10 @@ Click the following button install Contour from the Flathub store.
 ## Installing from source
 
 Contour is best installed from supported package managers, but you can build
-from source by following the instruction below.
+from source by following the instruction below. You can Qt 5 or Qt 6,
+by default contour will be compiler with Qt 6, to change Qt version use `QTVER=5 ./scripts/install-deps.sh` to fetch dependencies and cmake flag `-D CONTOUR_QT_VERSION=5`.
 
-### UNIX-like systems (Linux, FreeBSD, OS/X)
+### UNIX-like systems (Linux, FreeBSD, macOS)
 
 #### Prerequisites
 
@@ -60,16 +61,18 @@ from source by following the instruction below.
 ```
 
 This script *might* ask you for the administrator password if a package dependency
-can be insalled via the system package manager.
+can be installed via the system package manager.
 
 #### Compile
 
+You can use cmake presets to compile contour. The full list of available presets can be seen using `cmake --list-presets`. To compile release build for linux or MacOs use `linux-release` or `macos-release` accordingly. FreeBSD users can use `linux-release` or configure cmake manually.
+
 ```sh
-cmake -S . -B build -G Ninja
-cmake --build build/
+cmake --preset linux-release 
+cmake --build --preset linux-release
 
 # Optionally, if you want to install from source
-cmake --build build/ --target install
+cmake --build --preset linux-release --target install
 ```
 
 Please mind, if you want to install into a system root, e.g. `/usr/local`, you may need to prefix

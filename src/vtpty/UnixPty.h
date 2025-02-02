@@ -1,24 +1,16 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtpty/Pty.h>
+#include <vtpty/UnixUtils.h>
 
-#include <array>
+#include <crispy/BufferObject.h>
+#include <crispy/file_descriptor.h>
+#include <crispy/read_selector.h>
+
 #include <memory>
+#include <mutex>
 #include <optional>
-#include <vector>
 
 #if defined(__APPLE__)
     #include <util.h>
@@ -26,39 +18,20 @@
     #include <pty.h>
 #endif
 
-namespace terminal
+namespace vtpty
 {
 
-struct UnixPipe
-{
-    int pfd[2];
-
-    UnixPipe();
-    UnixPipe(UnixPipe&&) noexcept;
-    UnixPipe& operator=(UnixPipe&&) noexcept;
-    UnixPipe(UnixPipe const&) = delete;
-    UnixPipe& operator=(UnixPipe const&) = delete;
-    ~UnixPipe();
-
-    [[nodiscard]] bool good() const noexcept { return pfd[0] != -1 && pfd[1] != -1; }
-
-    [[nodiscard]] int reader() noexcept { return pfd[0]; }
-    [[nodiscard]] int writer() noexcept { return pfd[1]; }
-
-    void closeReader() noexcept;
-    void closeWriter() noexcept;
-
-    void close();
-};
+using crispy::file_descriptor;
 
 class UnixPty final: public Pty
 {
   private:
     class Slave final: public PtySlave
     {
+        file_descriptor _slaveFd;
+
       public:
-        int _slaveFd;
-        explicit Slave(PtySlaveHandle fd): _slaveFd { unbox<int>(fd) } {}
+        explicit Slave(PtySlaveHandle fd): _slaveFd { file_descriptor::from_native(unbox<int>(fd)) } {}
         ~Slave() override;
         [[nodiscard]] PtySlaveHandle handle() const noexcept;
         void close() override;
@@ -75,7 +48,7 @@ class UnixPty final: public Pty
         PtySlaveHandle slave;
     };
 
-    UnixPty(PageSize pageSize, std::optional<crispy::ImageSize> pixels);
+    UnixPty(PageSize pageSize, std::optional<ImageSize> pixels);
     ~UnixPty() override;
 
     PtySlave& slave() noexcept override;
@@ -83,14 +56,15 @@ class UnixPty final: public Pty
     [[nodiscard]] PtyMasterHandle handle() const noexcept;
     void start() override;
     void close() override;
+    void waitForClosed() override;
     [[nodiscard]] bool isClosed() const noexcept override;
     void wakeupReader() noexcept override;
-    [[nodiscard]] ReadResult read(crispy::BufferObject<char>& storage,
-                                  std::chrono::milliseconds timeout,
-                                  size_t size) override;
-    int write(char const* buf, size_t size) override;
+    [[nodiscard]] std::optional<ReadResult> read(crispy::buffer_object<char>& storage,
+                                                 std::optional<std::chrono::milliseconds> timeout,
+                                                 size_t size) override;
+    int write(std::string_view data) override;
     [[nodiscard]] PageSize pageSize() const noexcept override;
-    void resizeScreen(PageSize cells, std::optional<crispy::ImageSize> pixels = std::nullopt) override;
+    void resizeScreen(PageSize cells, std::optional<ImageSize> pixels = std::nullopt) override;
 
     UnixPipe& stdoutFastPipe() noexcept { return _stdoutFastPipe; }
 
@@ -99,12 +73,13 @@ class UnixPty final: public Pty
 
     [[nodiscard]] bool started() const noexcept { return _masterFd != -1; }
 
-    int _masterFd = -1;
-    std::array<int, 2> _pipe = { -1, -1 };
+    file_descriptor _masterFd;
     UnixPipe _stdoutFastPipe;
+    crispy::read_selector _readSelector;
     PageSize _pageSize;
-    std::optional<crispy::ImageSize> _pixels;
+    std::optional<ImageSize> _pixels;
     std::unique_ptr<Slave> _slave;
+    std::mutex _mutex;
 };
 
-} // namespace terminal
+} // namespace vtpty

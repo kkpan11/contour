@@ -1,16 +1,4 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/RenderBuffer.h>
@@ -20,7 +8,7 @@
 #include <vtrasterizer/RenderTarget.h>
 #include <vtrasterizer/TextureAtlas.h>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 struct GridMetrics;
@@ -47,13 +35,13 @@ class DecorationRenderer: public Renderable
         _hyperlinkHover = hover;
     }
 
-    void renderCell(RenderCell const& cell);
-    void renderLine(RenderLine const& line);
+    void renderCell(vtbackend::RenderCell const& cell);
+    void renderLine(vtbackend::RenderLine const& line);
 
     void renderDecoration(Decorator decoration,
-                          crispy::Point pos,
-                          ColumnCount columnCount,
-                          RGBColor const& color);
+                          crispy::point pos,
+                          vtbackend::ColumnCount columnCount,
+                          vtbackend::RGBColor const& color);
 
     [[nodiscard]] constexpr Decorator hyperlinkNormal() const noexcept { return _hyperlinkNormal; }
     [[nodiscard]] constexpr Decorator hyperlinkHover() const noexcept { return _hyperlinkHover; }
@@ -77,4 +65,4 @@ class DecorationRenderer: public Renderable
     Decorator _hyperlinkHover = Decorator::Underline;
 };
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

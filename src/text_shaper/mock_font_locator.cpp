@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <text_shaper/font.h>
 #include <text_shaper/mock_font_locator.h>
 
@@ -40,7 +28,7 @@ void mock_font_locator::configure(std::vector<font_description_and_source> regis
 
 font_source_list mock_font_locator::locate(font_description const& description)
 {
-    LocatorLog()("Locating font chain for: {}", description);
+    locatorLog()("Locating font chain for: {}", description);
 
     font_source_list output;
 
@@ -61,7 +49,7 @@ font_source_list mock_font_locator::locate(font_description const& description)
         if (item.description.weight != description.weight)
             continue;
 
-        if (item.description.spacing != description.spacing && description.strict_spacing)
+        if (item.description.spacing != description.spacing && description.strictSpacing)
             continue;
 
         output.emplace_back(item.source);

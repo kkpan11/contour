@@ -1,29 +1,17 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtrasterizer/BoxDrawingRenderer.h>
 #include <vtrasterizer/Pixmap.h>
 #include <vtrasterizer/utils.h>
 
 #include <crispy/logstore.h>
 
-#include <fmt/format.h>
-
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/iota.hpp>
 #include <range/v3/view/zip.hpp>
 
 #include <array>
+#include <cstdint>
+#include <format>
 
 using namespace std::string_view_literals;
 
@@ -38,20 +26,20 @@ using std::sort;
 using std::string_view;
 using std::tuple;
 
-using crispy::Point;
+using crispy::point;
 using ranges::views::filter;
 using ranges::views::iota;
 using ranges::views::zip;
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 namespace
 {
-    auto const inline BoxDrawingLog = logstore::Category("renderer.boxdrawing",
+    auto const inline boxDrawingLog = logstore::category("renderer.boxdrawing",
                                                          "Logs box drawing debugging.",
-                                                         logstore::Category::State::Disabled,
-                                                         logstore::Category::Visibility::Hidden);
+                                                         logstore::category::state::Disabled,
+                                                         logstore::category::visibility::Hidden);
 
     // TODO: Do not depend on this function but rather construct the pixmaps using the correct Y-coordinates.
     atlas::Buffer invertY(atlas::Buffer const& image, ImageSize cellSize)
@@ -65,7 +53,7 @@ namespace
         {
             for (size_t j = 0; j < cellSize.width.as<size_t>(); ++j)
             {
-                dest[i * pitch + j] = image[(height - i - 1u) * pitch + j];
+                dest[(i * pitch) + j] = image[((height - i - 1u) * pitch) + j];
             }
         }
         return dest;
@@ -78,7 +66,7 @@ namespace detail
     namespace
     {
 
-        enum class Thickness
+        enum class Thickness : uint8_t
         {
             Light,
             Heavy
@@ -138,32 +126,33 @@ namespace detail
             GapFills gaps;
             gaps.resize(unbox<size_t>(imageSize.height));
 
-            auto const w = unbox<unsigned>(imageSize.width);
-            auto const h = unbox<unsigned>(imageSize.height);
+            auto const w = unbox(imageSize.width);
+            auto const h = unbox(imageSize.height);
 
-            // fmt::print("{}.drawArc: size={}\n", arc, imageSize);
+            // std::cout << std::format("{}.drawArc: size={}\n", arc, imageSize);
             auto const putpixel = [&](int x, int y, uint8_t alpha = 0xFFu) {
                 auto const fy = clamp((unsigned) y, 0u, h - 1);
                 auto const fx = clamp((unsigned) x, 0u, w - 1);
-                buffer[fy * w + fx] = alpha;
+                buffer[(fy * w) + fx] = alpha;
                 gaps[fy].push_back(fx);
             };
 
             // inner circle
             drawEllipseArc(putpixel,
                            imageSize,
-                           crispy::Point { // radius
-                                           unbox<int>(imageSize.width) / 2 - int(thickness) / 2,
-                                           unbox<int>(imageSize.height) / 2 - int(thickness) / 2 },
+                           crispy::point { // radius
+                                           .x = (unbox<int>(imageSize.width) / 2) - (int(thickness) / 2),
+                                           .y = (unbox<int>(imageSize.height) / 2) - (int(thickness) / 2) },
                            arc);
 
             // outer circle
-            drawEllipseArc(putpixel,
-                           imageSize,
-                           crispy::Point { // radius
-                                           unbox<int>(imageSize.width) / 2 + int(thickness) / 2 - 1,
-                                           unbox<int>(imageSize.height) / 2 + int(thickness) / 2 - 1 },
-                           arc);
+            drawEllipseArc(
+                putpixel,
+                imageSize,
+                crispy::point { // radius
+                                .x = (unbox<int>(imageSize.width) / 2) + (int(thickness) / 2) - 1,
+                                .y = (unbox<int>(imageSize.height) / 2) + (int(thickness) / 2) - 1 },
+                arc);
 
             // Close arc at open ends to filling works.
             // bool const isLeft = arc == Arc::TopLeft || arc == Arc::BottomLeft;
@@ -176,16 +165,16 @@ namespace detail
             {
                 if (auto& gap = gaps[y]; !gap.empty())
                 {
-                    sort(begin(gap), end(gap));
+                    std::ranges::sort(gap);
                     for (auto const xi: iota(gap.front(), gap.back()))
-                        buffer.at(y * unbox<size_t>(imageSize.width) + xi) = 0xFF;
+                        buffer.at((y * unbox<size_t>(imageSize.width)) + xi) = 0xFF;
                 }
             }
         }
 
         struct ProgressBar
         {
-            enum class Part
+            enum class Part : uint8_t
             {
                 Left,
                 Middle,
@@ -195,14 +184,14 @@ namespace detail
             ImageSize size {};
             int underlinePosition = 1;
 
-            Part part_ = Part::Middle;
-            bool filled_ = false;
+            Part part = Part::Middle;
+            bool filledval = false;
 
             // clang-format off
-            constexpr ProgressBar& left() noexcept { part_ = Part::Left; return *this; }
-            constexpr ProgressBar& middle() noexcept { part_ = Part::Middle; return *this; }
-            constexpr ProgressBar& right() noexcept { part_ = Part::Right; return *this; }
-            constexpr ProgressBar& filled() noexcept { filled_ = true; return *this; }
+            constexpr ProgressBar& left() noexcept { part = Part::Left; return *this; }
+            constexpr ProgressBar& middle() noexcept { part = Part::Middle; return *this; }
+            constexpr ProgressBar& right() noexcept { part = Part::Right; return *this; }
+            constexpr ProgressBar& filled() noexcept { filledval = true; return *this; }
             // clang-format on
 
             operator atlas::Buffer() const
@@ -229,31 +218,31 @@ namespace detail
                 auto constexpr BlockLeft = 3 / 12_th;
                 auto constexpr BlockRight = 9 / 12_th;
                 auto constexpr BlockTop = 3 / 12_th;
-                auto const BlockBottom = 1.0 - (double(underlinePosition) / unbox<double>(size.height)) - 2 * Gap;
+                auto const blockBottom = 1.0 - (double(underlinePosition) / unbox<double>(size.height)) - (2 * Gap);
 
                 auto b = blockElement<1>(size);
 
-                switch (part_)
+                switch (part)
                 {
                 case Part::Left:
-                    b.rect({ BlockLeft-2*Gap, BlockTop-2*Gap },  { 1,             BlockTop-Gap });      // top line
-                    b.rect({ BlockLeft-2*Gap, BlockBottom+Gap }, { 1,             BlockBottom+2*Gap }); // bottom line
-                    b.rect({ BlockLeft-2*Gap, BlockTop-2*Gap },  { BlockLeft-Gap, BlockBottom+Gap });   // left bar
-                    if (filled_)
-                        b.rect({ BlockLeft,   BlockTop },        { 1,             BlockBottom });
+                    b.rect({ .x=BlockLeft-(2*Gap), .y=BlockTop-(2*Gap) },  { .x=1,             .y=BlockTop-Gap });      // top line
+                    b.rect({ .x=BlockLeft-(2*Gap), .y=blockBottom+Gap }, { .x=1,             .y=blockBottom+(2*Gap) }); // bottom line
+                    b.rect({ .x=BlockLeft-(2*Gap), .y=BlockTop-(2*Gap) },  { .x=BlockLeft-Gap, .y=blockBottom+Gap });   // left bar
+                    if (filledval)
+                        b.rect({ .x=BlockLeft,   .y=BlockTop },        { .x=1,             .y=blockBottom });
                     break;
                 case Part::Middle:
-                    b.rect({ 0, BlockTop-2*Gap },  { 1, BlockTop-Gap });      // top line
-                    b.rect({ 0, BlockBottom+Gap }, { 1, BlockBottom+2*Gap }); // bottom line
-                    if (filled_)
-                        b.rect({ 0,   BlockTop },  { 1, BlockBottom });
+                    b.rect({ .x=0, .y=BlockTop-(2*Gap) },  { .x=1, .y=BlockTop-Gap });      // top line
+                    b.rect({ .x=0, .y=blockBottom+Gap }, { .x=1, .y=blockBottom+(2*Gap) }); // bottom line
+                    if (filledval)
+                        b.rect({ .x=0,   .y=BlockTop },  { .x=1, .y=blockBottom });
                     break;
                 case Part::Right:
-                    b.rect({ 0,              BlockTop-2*Gap },  { BlockRight+2*Gap, BlockTop-Gap });      // top line
-                    b.rect({ 0,              BlockBottom+Gap }, { BlockRight+2*Gap, BlockBottom+2*Gap }); // bottom line
-                    b.rect({ BlockRight+Gap, BlockTop-2*Gap },  { BlockRight+2*Gap, BlockBottom+Gap });   // left bar
-                    if (filled_)
-                        b.rect({ 0,          BlockTop },        { BlockRight,       BlockBottom });
+                    b.rect({ .x=0,              .y=BlockTop-(2*Gap) },  { .x=BlockRight+(2*Gap), .y=BlockTop-Gap });      // top line
+                    b.rect({ .x=0,              .y=blockBottom+Gap }, { .x=BlockRight+(2*Gap), .y=blockBottom+(2*Gap) }); // bottom line
+                    b.rect({ .x=BlockRight+Gap, .y=BlockTop-(2*Gap) },  { .x=BlockRight+(2*Gap), .y=blockBottom+Gap });   // left bar
+                    if (filledval)
+                        b.rect({ .x=0,          .y=BlockTop },        { .x=BlockRight,       .y=blockBottom });
                     break;
                 }
                 // clang-format on
@@ -264,74 +253,74 @@ namespace detail
 
         struct Box
         {
-            Line up_ = NoLine;
-            Line right_ = NoLine;
-            Line down_ = NoLine;
-            Line left_ = NoLine;
-            Diagonal diagonal_ = NoDiagonal;
-            Arc arc_ = NoArc;
+            Line upval = NoLine;
+            Line rightval = NoLine;
+            Line downval = NoLine;
+            Line leftval = NoLine;
+            Diagonal diagonalval = NoDiagonal;
+            Arc arcval = NoArc;
 
             [[nodiscard]] constexpr Box up(Line value = Light)
             {
                 Box b(*this);
-                b.up_ = value;
+                b.upval = value;
                 return b;
             }
             [[nodiscard]] constexpr Box right(Line value = Light)
             {
                 Box b(*this);
-                b.right_ = value;
+                b.rightval = value;
                 return b;
             }
             [[nodiscard]] constexpr Box down(Line value = Light)
             {
                 Box b(*this);
-                b.down_ = value;
+                b.downval = value;
                 return b;
             }
             [[nodiscard]] constexpr Box left(Line value = Light)
             {
                 Box b(*this);
-                b.left_ = value;
+                b.leftval = value;
                 return b;
             }
             [[nodiscard]] constexpr Box diagonal(Diagonal value)
             {
                 Box b(*this);
-                b.diagonal_ = value;
+                b.diagonalval = value;
                 return b;
             }
 
             [[nodiscard]] constexpr Box arc(Arc value)
             {
                 Box b(*this);
-                b.arc_ = value;
+                b.arcval = value;
                 return b;
             }
 
             [[nodiscard]] constexpr optional<pair<uint8_t, Thickness>> get_dashed_horizontal() const noexcept
             {
-                return getDashed(left_, right_);
+                return getDashed(leftval, rightval);
             }
 
             [[nodiscard]] constexpr optional<pair<uint8_t, Thickness>> get_dashed_vertical() const noexcept
             {
-                return getDashed(up_, down_);
+                return getDashed(upval, downval);
             }
 
             [[nodiscard]] constexpr Box vertical(Line value = Light)
             {
                 Box b(*this);
-                b.up_ = value;
-                b.down_ = value;
+                b.upval = value;
+                b.downval = value;
                 return b;
             }
 
             [[nodiscard]] constexpr Box horizontal(Line value = Light)
             {
                 Box b(*this);
-                b.left_ = value;
-                b.right_ = value;
+                b.leftval = value;
+                b.rightval = value;
                 return b;
             }
 
@@ -357,7 +346,7 @@ namespace detail
 
         // U+2500 .. U+257F (128 box drawing characters)
 
-        constexpr auto boxDrawingDefinitions = std::array<Box, 0x80> // {{{
+        constexpr auto BoxDrawingDefinitions = std::array<Box, 0x80> // {{{
             {
                 Box {}.horizontal(Light),        // U+2500
                 Box {}.horizontal(Heavy),        // U+2501
@@ -497,7 +486,7 @@ namespace detail
             };
         // }}}
 
-        static_assert(boxDrawingDefinitions.size() == 0x80);
+        static_assert(BoxDrawingDefinitions.size() == 0x80);
 
         // {{{ block element construction
 
@@ -515,7 +504,7 @@ namespace detail
                      x < int(unbox<double>(size.width) * to.x);
                      ++x)
                 {
-                    image[size_t(h - y) * *size.width + size_t(x)] = (uint8_t) filler(x, y);
+                    image[(size_t(h - y) * unbox(size.width)) + size_t(x)] = (uint8_t) filler(x, y);
                 }
             }
         }
@@ -526,12 +515,12 @@ namespace detail
             auto const s = unbox<int>(size.width) / int(N);
             auto const t = unbox<int>(size.height) / int(N);
             return [s, t](int x, int y) {
-                auto constexpr set = Inv == Inverted::No ? 255 : 0;
-                auto constexpr unset = 255 - set;
+                auto constexpr Set = Inv == Inverted::No ? 255 : 0;
+                auto constexpr Unset = 255 - Set;
                 if ((y / t) % 2)
-                    return (x / s) % 2 != 0 ? set : unset;
+                    return (x / s) % 2 != 0 ? Set : Unset;
                 else
-                    return (x / s) % 2 == 0 ? set : unset;
+                    return (x / s) % 2 == 0 ? Set : Unset;
             };
         }
 
@@ -557,7 +546,7 @@ namespace detail
         auto dotted(ImageSize size)
         {
             auto const s = *size.width / N;
-            auto const f = linearEq({ 0, 0 }, { 10, 10 });
+            auto const f = linearEq({ .x = 0, .y = 0 }, { .x = 10, .y = 10 });
             return [s, f](int x, int y) {
                 return ((y) / s) % 2 && ((x) / s) % 2 ? 255 : 0;
             };
@@ -567,7 +556,7 @@ namespace detail
         auto gatter(ImageSize size)
         {
             auto const s = *size.width / N;
-            auto const f = linearEq({ 0, 0 }, { 10, 10 });
+            auto const f = linearEq({ .x = 0, .y = 0 }, { .x = 10, .y = 10 });
             return [s, f](int x, int y) {
                 return ((y) / s) % 2 || ((x) / s) % 2 ? 255 : 0;
             };
@@ -577,9 +566,10 @@ namespace detail
         auto dbar(ImageSize size)
         {
             auto const s = *size.height / N;
-            auto const f = linearEq({ 0, 0 }, { unbox<int>(size.width), unbox<int>(size.height) });
+            auto const f =
+                linearEq({ .x = 0, .y = 0 }, { .x = unbox<int>(size.width), .y = unbox<int>(size.height) });
             return [s, f](int x, int y) {
-                return (unsigned(y - P * f(x)) / s) % 2 ? 0 : 255;
+                return (unsigned(y - (P * f(x))) / s) % 2 ? 0 : 255;
             };
         }
 
@@ -607,7 +597,7 @@ namespace detail
 
         struct DiagonalMosaic
         {
-            enum class Body
+            enum class Body : uint8_t
             {
                 Lower,
                 Upper
@@ -620,33 +610,33 @@ namespace detail
         template <Dir Direction, int DivisorX>
         auto getTriangleProps(ImageSize size)
         {
-            auto const c =
-                Point { Direction == Dir::Left ? unbox<int>(size.width) / DivisorX
-                                               : unbox<int>(size.width) - unbox<int>(size.width) / DivisorX,
-                        unbox<int>(size.height) / 2 };
+            auto const c = point { .x = Direction == Dir::Left
+                                            ? unbox<int>(size.width) / DivisorX
+                                            : unbox<int>(size.width) - (unbox<int>(size.width) / DivisorX),
+                                   .y = unbox<int>(size.height) / 2 };
             auto const w = unbox<int>(size.width) - 1;
             auto const h = unbox<int>(size.height) - 1;
 
             if constexpr (Direction == Dir::Left)
             {
-                auto const a = linearEq({ 0, 0 }, c);
-                auto const b = linearEq({ 0, h }, c);
+                auto const a = linearEq({ .x = 0, .y = 0 }, c);
+                auto const b = linearEq({ .x = 0, .y = h }, c);
                 return [a, b](int x) {
                     return pair { a(x), b(x) };
                 };
             }
             else if constexpr (Direction == Dir::Right)
             {
-                auto const a = linearEq(c, { w, 0 });
-                auto const b = linearEq(c, { w, h });
+                auto const a = linearEq(c, { .x = w, .y = 0 });
+                auto const b = linearEq(c, { .x = w, .y = h });
                 return [a, b](int x) {
                     return pair { a(x), b(x) };
                 };
             }
             else if constexpr (Direction == Dir::Top)
             {
-                auto const a = linearEq({ 0, 0 }, c);
-                auto const b = linearEq(c, { w, 0 });
+                auto const a = linearEq({ .x = 0, .y = 0 }, c);
+                auto const b = linearEq(c, { .x = w, .y = 0 });
                 return [a, b, c](int x) {
                     if (x < c.x)
                         return pair { 0, a(x) };
@@ -656,8 +646,8 @@ namespace detail
             }
             else if constexpr (Direction == Dir::Bottom)
             {
-                auto const a = linearEq({ 0, h }, c);
-                auto const b = linearEq(c, { w, h });
+                auto const a = linearEq({ .x = 0, .y = h }, c);
+                auto const b = linearEq(c, { .x = w, .y = h });
                 return [a, b, c, h](int x) {
                     if (x < c.x)
                         return pair { a(x), h };
@@ -671,11 +661,11 @@ namespace detail
         template <int P>
         auto triChecker(ImageSize size)
         {
-            auto const c = Point { unbox<int>(size.width) / 2, unbox<int>(size.height) / 2 };
+            auto const c = point { .x = unbox<int>(size.width) / 2, .y = unbox<int>(size.height) / 2 };
             auto const w = unbox<int>(size.width) - 1;
 
-            auto const f = linearEq({ 0, 0 }, c);
-            auto const g = linearEq(c, { w, 0 });
+            auto const f = linearEq({ .x = 0, .y = 0 }, c);
+            auto const g = linearEq(c, { .x = w, .y = 0 });
             auto const k = checker<4, Inverted::No>(size);
 
             return [=](int x, int y) {
@@ -694,41 +684,41 @@ namespace detail
         template <Inverted Inv>
         auto dchecker(ImageSize size)
         {
-            auto constexpr set = Inv == Inverted::No ? 255 : 0;
-            auto constexpr unset = 255 - set;
+            auto constexpr Set = Inv == Inverted::No ? 255 : 0;
+            auto constexpr Unset = 255 - Set;
 
-            auto const c = Point { unbox<int>(size.width) / 2, unbox<int>(size.height) / 2 };
+            auto const c = point { .x = unbox<int>(size.width) / 2, .y = unbox<int>(size.height) / 2 };
             auto const w = unbox<int>(size.width) - 1;
 
-            auto const f = linearEq({ 0, 0 }, c);
-            auto const g = linearEq(c, { w, 0 });
+            auto const f = linearEq({ .x = 0, .y = 0 }, c);
+            auto const g = linearEq(c, { .x = w, .y = 0 });
 
             return [=](int x, int y) {
                 auto const [a, b] = pair { f(x), g(x) };
                 if (x <= c.x)
-                    return a <= y && y <= b ? set : unset;
+                    return a <= y && y <= b ? Set : Unset;
                 else
-                    return b <= y && y <= a ? set : unset;
+                    return b <= y && y <= a ? Set : Unset;
             };
         }
 
         template <Dir Direction, Inverted inverted, int DivisorX>
         void fillTriangle(Pixmap& pixmap)
         {
-            auto const p = getTriangleProps<Direction, DivisorX>(pixmap._size);
+            auto const p = getTriangleProps<Direction, DivisorX>(pixmap.size);
             auto const [set, unset] = []() -> pair<uint8_t, uint8_t> {
                 return inverted == Inverted::No ? pair { 0xFF, 0 } : pair { 0, 0xFF };
             }();
 
-            auto const w = unbox<unsigned>(pixmap._size.width);
-            auto const h = unbox<unsigned>(pixmap._size.height) - 1;
+            auto const w = unbox(pixmap.size.width);
+            auto const h = unbox(pixmap.size.height) - 1;
 
-            for (auto const y: ranges::views::iota(0u, unbox<unsigned>(pixmap._size.height)))
+            for (auto const y: ranges::views::iota(0u, unbox(pixmap.size.height)))
             {
-                for (auto const x: ranges::views::iota(0u, unbox<unsigned>(pixmap._size.width)))
+                for (auto const x: ranges::views::iota(0u, unbox(pixmap.size.width)))
                 {
                     auto const [a, b] = p(int(x));
-                    pixmap._buffer[unsigned(h - y) * w + x] = a <= int(y) && int(y) <= b ? set : unset;
+                    pixmap.buffer[(unsigned(h - y) * w) + x] = a <= int(y) && int(y) <= b ? set : unset;
                 }
             }
         }
@@ -741,26 +731,26 @@ namespace detail
             return pixmap.take();
         }
 
-        enum class UpperOrLower
+        enum class UpperOrLower : uint8_t
         {
             Upper,
             Lower
         };
         void diagonalMosaic(Pixmap& pixmap, Ratio ra, Ratio rb, UpperOrLower location) noexcept
         {
-            auto const innerSize = pixmap._size - ImageSize { Width(1), Height(1) };
+            auto const innerSize = pixmap.size - ImageSize { vtbackend::Width(1), vtbackend::Height(1) };
 
             auto const condition =
                 [location, line = linearEq(innerSize * ra, innerSize * rb)](int x, int y) noexcept -> bool {
                 return location == UpperOrLower::Upper ? y <= line(x) : y >= line(x);
             };
 
-            auto const h = pixmap._size.height.as<unsigned>() - 1;
-            auto const w = pixmap._size.width.as<unsigned>();
-            for (auto const y: ranges::views::iota(0u, pixmap._size.height.as<unsigned>()))
-                for (auto const x: ranges::views::iota(0u, pixmap._size.width.as<unsigned>()))
+            auto const h = pixmap.size.height.as<unsigned>() - 1;
+            auto const w = pixmap.size.width.as<unsigned>();
+            for (auto const y: ranges::views::iota(0u, pixmap.size.height.as<unsigned>()))
+                for (auto const x: ranges::views::iota(0u, pixmap.size.width.as<unsigned>()))
                     if (condition(int(x), int(y)))
-                        pixmap._buffer.at(w * (h - y) + x) = 0xFF;
+                        pixmap.buffer.at((w * (h - y)) + x) = 0xFF;
         }
 
         inline atlas::Buffer upperDiagonalMosaic(ImageSize size, Ratio ra, Ratio rb)
@@ -784,15 +774,15 @@ namespace detail
 
         atlas::Buffer operator|(Pixmap a, RatioBlock block)
         {
-            fillBlock(a._buffer, a._size, block.from, block.to, a._filler);
-            return std::move(a._buffer);
+            fillBlock(a.buffer, a.size, block.from, block.to, a.filler);
+            return std::move(a.buffer);
         }
 
         atlas::Buffer operator|(Pixmap a, MosaicBlock const& b)
         {
-            for (RatioBlock block: b.blocks)
-                fillBlock(a._buffer, a._size, block.from, block.to, a._filler);
-            return std::move(a._buffer);
+            for (RatioBlock const block: b.blocks)
+                fillBlock(a.buffer, a.size, block.from, block.to, a.filler);
+            return std::move(a.buffer);
         }
 
         inline MosaicBlock operator+(RatioBlock a, RatioBlock b)
@@ -828,17 +818,19 @@ namespace detail
         // 1 <= n <= r*n
         constexpr inline RatioBlock horiz_nth(double r, int n) noexcept
         {
-            return RatioBlock { { 0, r * double(n - 1) }, { 1, r * double(n) } };
+            return RatioBlock { .from = { .x = 0, .y = r * double(n - 1) },
+                                .to = { .x = 1, .y = r * double(n) } };
         }
 
         constexpr inline RatioBlock vert_nth(double r, int n) noexcept
         {
-            return RatioBlock { { r * double(n - 1), 0 }, { r * double(n), 1 } };
+            return RatioBlock { .from = { .x = r * double(n - 1), .y = 0 },
+                                .to = { .x = r * double(n), .y = 1 } };
         }
 
         [[maybe_unused]] inline Pixmap operator*(Pixmap&& image, RatioBlock block)
         {
-            fillBlock(image._buffer, image._size, block.from, block.to, image._filler);
+            fillBlock(image.buffer, image.size, block.from, block.to, image.filler);
             return std::move(image);
         }
 
@@ -882,7 +874,7 @@ namespace detail
             auto const x1 = x0 + 1;
             auto const y1 = y0 + 1;
 
-            // fmt::print("- block sextant pos {}: x={} y={} x0={} y0={} x1={} y1={}\n",
+            // std::cout << std::format("- block sextant pos {}: x={} y={} x0={} y0={} x1={} y1={}\n",
             //            position, x, y, x0, y0, x1, y1);
 
             fillBlock(image, size, { x0 / 2_th, y0 / 3_th }, { x1 / 2_th, y1 / 3_th }, [](int, int) {
@@ -922,7 +914,10 @@ void BoxDrawingRenderer::clearCache()
     // to clear here anything. It's done for us already.
 }
 
-bool BoxDrawingRenderer::render(LineOffset line, ColumnOffset column, char32_t codepoint, RGBColor color)
+bool BoxDrawingRenderer::render(vtbackend::LineOffset line,
+                                vtbackend::ColumnOffset column,
+                                char32_t codepoint,
+                                vtbackend::RGBColor color)
 {
     Renderable::AtlasTileAttributes const* data = getOrCreateCachedTileAttributes(codepoint);
     if (!data)
@@ -948,8 +943,8 @@ constexpr inline bool containsNonCanonicalLines(char32_t codepoint)
 {
     if (codepoint < 0x2500 || codepoint > 0x257F)
         return false;
-    auto const& box = detail::boxDrawingDefinitions[codepoint - 0x2500];
-    return box.diagonal_ != detail::NoDiagonal || box.arc_ != NoArc;
+    auto const& box = detail::BoxDrawingDefinitions[codepoint - 0x2500];
+    return box.diagonalval != detail::NoDiagonal || box.arcval != NoArc;
 }
 
 auto BoxDrawingRenderer::createTileData(char32_t codepoint, atlas::TileLocation tileLocation)
@@ -972,10 +967,11 @@ auto BoxDrawingRenderer::createTileData(char32_t codepoint, atlas::TileLocation 
     if (antialiasing)
     {
         auto const supersamplingFactor = []() {
-            auto constexpr envName = "SSA_FACTOR";
-            if (!getenv(envName))
+            auto constexpr EnvName = "SSA_FACTOR";
+            auto* const envValue = getenv(EnvName);
+            if (!envValue)
                 return 2;
-            auto const val = atoi(getenv(envName));
+            auto const val = atoi(envValue);
             if (!(val >= 1 && val <= 8))
                 return 1;
             return val;
@@ -1011,7 +1007,7 @@ auto BoxDrawingRenderer::createTileData(char32_t codepoint, atlas::TileLocation 
 Renderable::AtlasTileAttributes const* BoxDrawingRenderer::getOrCreateCachedTileAttributes(char32_t codepoint)
 {
     return textureAtlas().get_or_try_emplace(
-        crispy::StrongHash { 31, 13, 8, static_cast<uint32_t>(codepoint) },
+        crispy::strong_hash { 31, 13, 8, static_cast<uint32_t>(codepoint) },
         [this, codepoint](atlas::TileLocation tileLocation) -> optional<TextureAtlas::TileCreateData> {
             return createTileData(codepoint, tileLocation);
         });
@@ -1051,38 +1047,20 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildElements(char32_t codepoint)
     auto const ld = [=](Ratio a, Ratio b) {
         return lowerDiagonalMosaic(size, a, b);
     };
-    auto const lineArt =
-#if __cplusplus > 201703L
-        [=, this]
-#else
-        [=]
-#endif
-        () {
-            auto b = blockElement<2>(size);
-            b.lineThickness(_gridMetrics.underline.thickness);
-            return b;
-        };
-    auto const progressBar =
-#if __cplusplus > 201703L
-        [=, this]
-#else
-        [=]
-#endif
-        () {
-            return ProgressBar { size, _gridMetrics.underline.position };
-        };
-    auto const segmentArt =
-#if __cplusplus > 201703L
-        [=, this]
-#else
-        [=]
-#endif
-        () {
-            auto constexpr AntiAliasingSamplingFactor = 1;
-            return blockElement<AntiAliasingSamplingFactor>(size)
-                .lineThickness(_gridMetrics.underline.thickness)
-                .baseline(_gridMetrics.baseline * AntiAliasingSamplingFactor);
-        };
+    auto const lineArt = [size, this]() {
+        auto b = blockElement<2>(size);
+        b.getlineThickness(_gridMetrics.underline.thickness);
+        return b;
+    };
+    auto const progressBar = [size, this]() {
+        return ProgressBar { .size = size, .underlinePosition = _gridMetrics.underline.position };
+    };
+    auto const segmentArt = [size, this]() {
+        auto constexpr AntiAliasingSamplingFactor = 1;
+        return blockElement<AntiAliasingSamplingFactor>(size)
+            .getlineThickness(_gridMetrics.underline.thickness)
+            .baseline(_gridMetrics.baseline * AntiAliasingSamplingFactor);
+    };
 
     // TODO: just check notcurses-info to get an idea what may be missing
     // clang-format off
@@ -1328,50 +1306,50 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildElements(char32_t codepoint)
         case 0x1FB3B: return blockSextant(size, 2, 3, 4, 5, 6); // 🬻  BLOCK SEXTANT-23456
         // }}}
         // {{{ 1FB3C..1FBAF diagonals, nth, block elements
-        case 0x1FB3C: return /* 🬼  */ ld({ 0, 3 / 4_th }, { 1 / 4_th, 1 });
-        case 0x1FB3D: return /* 🬽  */ ld({ 0, 3 / 4_th }, { 1, 1 });
-        case 0x1FB3E: return /* 🬾  */ ld({ 0, 1 / 4_th }, { 1 / 2_th, 1 });
-        case 0x1FB3F: return /* 🬿  */ ld({ 0, 1 / 4_th }, { 1, 1 });
-        case 0x1FB40: return /* 🭀  */ ld({ 0, 0 }, { 1 / 2_th, 1 });
-        case 0x1FB41: return /* 🭁  */ ld({ 0, 1 / 4_th }, { 1 / 2_th, 0 });
-        case 0x1FB42: return /* 🭂  */ ld({ 0, 1 / 4_th }, { 1, 0 });
-        case 0x1FB43: return /* 🭃  */ ld({ 0, 3 / 4_th }, { 1 / 2_th, 0 });
-        case 0x1FB44: return /* 🭄  */ ld({ 0, 3 / 4_th }, { 1, 0 });
-        case 0x1FB45: return /* 🭅  */ ld({ 0, 1 }, { 1 / 2_th, 0 });
-        case 0x1FB46: return /* 🭆  */ ld({ 0, 3 / 4_th }, { 1, 1 / 4_th });
-        case 0x1FB47: return /* 🭇  */ ld({ 3 / 4_th, 1 }, { 1, 3 / 4_th });
-        case 0x1FB48: return /* 🭈  */ ld({ 0, 1 }, { 1, 3 / 4_th });
-        case 0x1FB49: return /* 🭉  */ ld({ 1 / 2_th, 1 }, { 1, 1 / 4_th });
-        case 0x1FB4A: return /* 🭊  */ ld({ 0, 1 }, { 1, 1 / 4_th });
-        case 0x1FB4B: return /* 🭋  */ ld({ 1 / 2_th, 1 }, { 1, 0 });
-        case 0x1FB4C: return /* 🭌  */ ld({ 1 / 2_th, 0 }, { 1, 1 / 4_th });
-        case 0x1FB4D: return /* 🭍  */ ld({ 0, 0 }, { 1, 1 / 4_th });
-        case 0x1FB4E: return /* 🭎  */ ld({ 1 / 2_th, 0 }, { 1, 3 / 4_th });
-        case 0x1FB4F: return /* 🭏  */ ld({ 0, 0 }, { 1, 3 / 4_th });
-        case 0x1FB50: return /* 🭐  */ ld({ 1 / 2_th, 0 }, { 1, 1 });
-        case 0x1FB51: return /* 🭑  */ ld({ 0, 1 / 4_th }, { 1, 3 / 4_th });
-        case 0x1FB52: return /* 🭒  */ ud({ 0, 3 / 4_th }, { 1 / 2_th, 1 });
-        case 0x1FB53: return /* 🭓  */ ud({ 0, 3 / 4_th }, { 1, 1 });
-        case 0x1FB54: return /* 🭔  */ ud({ 0, 1 / 4_th }, { 1 / 2_th, 1 });
-        case 0x1FB55: return /* 🭕  */ ud({ 0, 1 / 4_th }, { 1, 1 }); // XXX
-        case 0x1FB56: return /* 🭖  */ ud({ 0, 0 }, { 1 / 2_th, 1 });
-        case 0x1FB57: return /* 🭗  */ ud({ 0, 1 / 4_th }, { 1 / 4_th, 0 });
-        case 0x1FB58: return /* 🭘  */ ud({ 0, 1 / 4_th }, { 1, 0 });
-        case 0x1FB59: return /* 🭙  */ ud({ 0, 3 / 4_th }, { 1 / 2_th, 0 });
-        case 0x1FB5A: return /* 🭚  */ ud({ 0, 3 / 4_th }, { 1, 0 });
-        case 0x1FB5B: return /* 🭛  */ ud({ 0, 1 }, { 1 / 2_th, 0 });
-        case 0x1FB5C: return /* 🭜  */ ud({ 0, 3 / 4_th }, { 1, 1 / 4_th });
-        case 0x1FB5D: return /* 🭝  */ ud({ 1 / 2_th, 1 }, { 1, 3 / 4_th });
-        case 0x1FB5E: return /* 🭞  */ ud({ 0, 1 }, { 1, 3 / 4_th });
-        case 0x1FB5F: return /* 🭟  */ ud({ 1 / 2_th, 1 }, { 1, 1 / 4_th });
-        case 0x1FB60: return /* 🭠  */ ud({ 0, 1 }, { 1, .25 });
-        case 0x1FB61: return /* 🭡  */ ud({ 1 / 2_th, 1 }, { 1, 0 });
-        case 0x1FB62: return /* 🭢  */ ud({ 3 / 4_th, 0 }, { 1, 1 / 4_th });
-        case 0x1FB63: return /* 🭣  */ ud({ 0, 0 }, { 1, 1 / 4_th });
-        case 0x1FB64: return /* 🭤  */ ud({ 1 / 2_th, 0 }, { 1, 3 / 4_th });
-        case 0x1FB65: return /* 🭥  */ ud({ 0, 0 }, { 1, 3 / 4_th });
-        case 0x1FB66: return /* 🭦  */ ud({ 1 / 2_th, 0 }, { 1, 1 });
-        case 0x1FB67: return /* 🭧  */ ud({ 0, 1 / 4_th }, { 1, 3 / 4_th });
+        case 0x1FB3C: return /* 🬼  */ ld({ .x = 0, .y = 3 / 4_th }, { .x = 1 / 4_th, .y = 1 });
+        case 0x1FB3D: return /* 🬽  */ ld({ .x = 0, .y = 3 / 4_th }, {.x = 1, .y = 1 });
+        case 0x1FB3E: return /* 🬾  */ ld({ .x = 0, .y = 1 / 4_th }, {.x = 1 / 2_th, .y = 1 });
+        case 0x1FB3F: return /* 🬿  */ ld({ .x = 0, .y = 1 / 4_th }, {.x = 1, .y = 1 });
+        case 0x1FB40: return /* 🭀  */ ld({ .x = 0, .y = 0 }, { .x = 1 / 2_th, .y = 1 });
+        case 0x1FB41: return /* 🭁  */ ld({ .x = 0, .y = 1 / 4_th }, { .x = 1 / 2_th, .y = 0 });
+        case 0x1FB42: return /* 🭂  */ ld({ .x = 0, .y = 1 / 4_th }, { .x = 1, .y = 0 });
+        case 0x1FB43: return /* 🭃  */ ld({ .x = 0, .y = 3 / 4_th }, {  .x = 1 / 2_th, .y = 0 });
+        case 0x1FB44: return /* 🭄  */ ld({ .x = 0, .y = 3 / 4_th }, {  .x = 1, .y = 0 });
+        case 0x1FB45: return /* 🭅  */ ld({ .x = 0, .y = 1 }, { .x =  1 / 2_th, .y = 0 });
+        case 0x1FB46: return /* 🭆  */ ld({ .x = 0, .y = 3 / 4_th }, { .x =  1, .y = 1 / 4_th });
+        case 0x1FB47: return /* 🭇  */ ld({ .x = 3 / 4_th, .y = 1 }, { .x =  1, .y = 3 / 4_th });
+        case 0x1FB48: return /* 🭈  */ ld({ .x = 0, .y = 1 }, { .x =  1, .y = 3 / 4_th });
+        case 0x1FB49: return /* 🭉  */ ld({ .x = 1 / 2_th, .y = 1 }, { .x =  1, .y = 1 / 4_th });
+        case 0x1FB4A: return /* 🭊  */ ld({ .x = 0, .y = 1 }, { .x =  1, .y = 1 / 4_th });
+        case 0x1FB4B: return /* 🭋  */ ld({ .x = 1 / 2_th, .y = 1 }, { .x =  1, .y = 0 });
+        case 0x1FB4C: return /* 🭌  */ ld({ .x = 1 / 2_th, .y = 0 }, { .x =  1, .y = 1 / 4_th });
+        case 0x1FB4D: return /* 🭍  */ ld({ .x = 0, .y = 0 }, { .x =  1, .y = 1 / 4_th });
+        case 0x1FB4E: return /* 🭎  */ ld({ .x = 1 / 2_th, .y = 0 }, { .x =  1, .y = 3 / 4_th });
+        case 0x1FB4F: return /* 🭏  */ ld({ .x = 0, .y = 0 }, { .x =  1, .y = 3 / 4_th });
+        case 0x1FB50: return /* 🭐  */ ld({ .x = 1 / 2_th, .y = 0 }, { .x =  1, .y = 1 });
+        case 0x1FB51: return /* 🭑  */ ld({ .x = 0, .y = 1 / 4_th }, { .x =  1, .y = 3 / 4_th });
+        case 0x1FB52: return /* 🭒  */ ud({ .x = 0, .y = 3 / 4_th }, { .x =  1 / 2_th, .y = 1 });
+        case 0x1FB53: return /* 🭓  */ ud({ .x = 0, .y = 3 / 4_th }, { .x =  1, .y = 1 });
+        case 0x1FB54: return /* 🭔  */ ud({ .x = 0, .y = 1 / 4_th }, { .x =  1 / 2_th, .y = 1 });
+        case 0x1FB55: return /* 🭕  */ ud({ .x = 0, .y = 1 / 4_th }, { .x =  1, .y = 1 }); // XXX
+        case 0x1FB56: return /* 🭖  */ ud({ .x = 0, .y = 0 }, { .x =  1 / 2_th, .y = 1 });
+        case 0x1FB57: return /* 🭗  */ ud({ .x = 0, .y = 1 / 4_th }, { .x = 1 / 4_th, .y = 0 });
+        case 0x1FB58: return /* 🭘  */ ud({ .x = 0, .y = 1 / 4_th }, { .x = 1, .y = 0 });
+        case 0x1FB59: return /* 🭙  */ ud({ .x = 0, .y = 3 / 4_th }, { .x = 1 / 2_th, .y = 0 });
+        case 0x1FB5A: return /* 🭚  */ ud({ .x = 0, .y = 3 / 4_th }, { .x = 1, .y = 0 });
+        case 0x1FB5B: return /* 🭛  */ ud({ .x = 0, .y = 1 }, {  .x =1 / 2_th, .y = 0 });
+        case 0x1FB5C: return /* 🭜  */ ud({ .x = 0, .y = 3 / 4_th }, {  .x =1, .y = 1 / 4_th });
+        case 0x1FB5D: return /* 🭝  */ ud({ .x = 1 / 2_th, .y = 1 }, {  .x =1, .y = 3 / 4_th });
+        case 0x1FB5E: return /* 🭞  */ ud({ .x = 0, .y = 1 }, {  .x = 1, .y = 3 / 4_th });
+        case 0x1FB5F: return /* 🭟  */ ud({ .x = 1 / 2_th, .y = 1 }, {  .x = 1, .y = 1 / 4_th });
+        case 0x1FB60: return /* 🭠  */ ud({ .x = 0, .y = 1 }, {  .x = 1, .y = .25 });
+        case 0x1FB61: return /* 🭡  */ ud({ .x = 1 / 2_th, .y = 1 }, {  .x = 1, .y = 0 });
+        case 0x1FB62: return /* 🭢  */ ud({ .x = 3 / 4_th, .y = 0 }, {  .x = 1, .y = 1 / 4_th });
+        case 0x1FB63: return /* 🭣  */ ud({ .x = 0, .y = 0 }, {   .x = 1, .y = 1 / 4_th });
+        case 0x1FB64: return /* 🭤  */ ud({ .x = 1 / 2_th, .y = 0 }, {   .x = 1, .y = 3 / 4_th });
+        case 0x1FB65: return /* 🭥  */ ud({ .x = 0, .y = 0 }, {   .x = 1, .y = 3 / 4_th });
+        case 0x1FB66: return /* 🭦  */ ud({ .x = 1 / 2_th, .y = 0 }, {  .x = 1, .y = 1 });
+        case 0x1FB67: return /* 🭧  */ ud({ .x = 0, .y = 1 / 4_th }, {  .x = 1, .y = 3 / 4_th });
         case 0x1FB68: return /* 🭨  */ triangle<Dir::Left, Inverted::Yes>(size);
         case 0x1FB69: return /* 🭩  */ triangle<Dir::Top, Inverted::Yes>(size);
         case 0x1FB6A: return /* 🭪  */ triangle<Dir::Right, Inverted::Yes>(size);
@@ -1450,64 +1428,64 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildElements(char32_t codepoint)
         case 0x1FB9D: return blockElement<1>(size).fill(triChecker<2>(size));
         case 0x1FB9E: return blockElement<1>(size).fill(triChecker<3>(size));
         case 0x1FB9F: return blockElement<1>(size).fill(triChecker<4>(size));
-        case 0x1FBA0: return lineArt().line({ 0, 1 / 2_th }, { 1 / 2_th, 0 });
-        case 0x1FBA1: return lineArt().line({ 1 / 2_th, 0 }, { 1, 1 / 2_th });
-        case 0x1FBA2: return lineArt().line({ 0, 1 / 2_th }, { 1 / 2_th, 1 });
-        case 0x1FBA3: return lineArt().line({ 1 / 2_th, 1 }, { 1, 1 / 2_th });
+        case 0x1FBA0: return lineArt().line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 });
+        case 0x1FBA1: return lineArt().line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th });
+        case 0x1FBA2: return lineArt().line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 });
+        case 0x1FBA3: return lineArt().line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th });
         case 0x1FBA4:
-            return lineArt().line({ 0, 1 / 2_th }, { 1 / 2_th, 0 }).line({ 0, 1 / 2_th }, { 1 / 2_th, 1 });
+            return lineArt().line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 }).line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 });
         case 0x1FBA5:
-            return lineArt().line({ 1 / 2_th, 0 }, { 1, 1 / 2_th }).line({ 1 / 2_th, 1 }, { 1, 1 / 2_th });
+            return lineArt().line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th }).line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th });
         case 0x1FBA6:
-            return lineArt().line({ 0, 1 / 2_th }, { 1 / 2_th, 1 }).line({ 1 / 2_th, 1 }, { 1, 1 / 2_th });
+            return lineArt().line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 }).line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th });
         case 0x1FBA7:
-            return lineArt().line({ 0, 1 / 2_th }, { 1 / 2_th, 0 }).line({ 1 / 2_th, 0 }, { 1, 1 / 2_th });
+            return lineArt().line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 }).line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th });
         case 0x1FBA8:
-            return lineArt().line({ 0, 1 / 2_th }, { 1 / 2_th, 0 }).line({ 1 / 2_th, 1 }, { 1, 1 / 2_th });
+            return lineArt().line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 }).line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th });
         case 0x1FBA9:
-            return lineArt().line({ 1 / 2_th, 0 }, { 1, 1 / 2_th }).line({ 0, 1 / 2_th }, { 1 / 2_th, 1 });
+            return lineArt().line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th }).line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 });
         case 0x1FBAA:
             return lineArt()
                 . // line({0, 1/2_th}, {1/2_th, 0}).
-                line({ 1 / 2_th, 0 }, { 1, 1 / 2_th })
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 1 })
-                .line({ 1 / 2_th, 1 }, { 1, 1 / 2_th })
+                line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 })
+                .line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th })
                 .take();
         case 0x1FBAB:
             return lineArt()
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 0 })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 })
                 .
                 // line({1/2_th, 0}, {1, 1/2_th}).
-                line({ 0, 1 / 2_th }, { 1 / 2_th, 1 })
-                .line({ 1 / 2_th, 1 }, { 1, 1 / 2_th })
+                line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 })
+                .line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th })
                 .take();
         case 0x1FBAC:
             return lineArt()
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 0 })
-                .line({ 1 / 2_th, 0 }, { 1, 1 / 2_th })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 })
+                .line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th })
                 .
                 // line({0, 1/2_th}, {1/2_th, 1}).
-                line({ 1 / 2_th, 1 }, { 1, 1 / 2_th })
+                line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th })
                 .take();
         case 0x1FBAD:
             return lineArt()
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 0 })
-                .line({ 1 / 2_th, 0 }, { 1, 1 / 2_th })
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 1 })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 })
+                .line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 })
                 .
                 // line({1/2_th, 1}, {1, 1/2_th}).
                 take();
         case 0x1FBAE:
             return lineArt()
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 0 })
-                .line({ 1 / 2_th, 0 }, { 1, 1 / 2_th })
-                .line({ 0, 1 / 2_th }, { 1 / 2_th, 1 })
-                .line({ 1 / 2_th, 1 }, { 1, 1 / 2_th })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=0 })
+                .line({ .x=1 / 2_th, .y=0 }, { .x=1, .y=1 / 2_th })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1 / 2_th, .y=1 })
+                .line({ .x=1 / 2_th, .y=1 }, { .x=1, .y=1 / 2_th })
                 .take();
         case 0x1FBAF:
             return lineArt()
-                .line({ 0, 1 / 2_th }, { 1, 1 / 2_th })
-                .line({ 1 / 2_th, 3 / 8_th }, { 1 / 2_th, 5 / 8_th })
+                .line({ .x=0, .y=1 / 2_th }, { .x=1, .y=1 / 2_th })
+                .line({ .x=1 / 2_th, .y=3 / 8_th }, { .x=1 / 2_th, .y=5 / 8_th })
                 .take();
         case 0x1FBF0: return segmentArt().segment_bar(1, 2, 4, 5, 6, 7);
         case 0x1FBF1: return segmentArt().segment_bar(2, 5);
@@ -1525,9 +1503,9 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildElements(char32_t codepoint)
         case 0xE0B2: return /*  */ triangle<Dir::Right, Inverted::No, 1>(size);
         case 0xE0B4: return /*  */ blockElement<2>(size).halfFilledCircleRight();
         case 0xE0B6: return /*  */ blockElement<2>(size).halfFilledCircleLeft();
-        case 0xE0BA: return /*  */ ld({ 0, 1 }, { 1, 0 });
-        case 0xE0BC: return /*  */ ud({ 0, 1 }, { 1, 0 });
-        case 0xE0BE: return /*  */ ud({ 0, 0 }, { 1, 1 });
+        case 0xE0BA: return /*  */ ld({ .x=0, .y=1 }, { .x=1, .y=0 });
+        case 0xE0BC: return /*  */ ud({ .x=0, .y=1 }, { .x=1, .y=0 });
+        case 0xE0BE: return /*  */ ud({ .x=0, .y=0 }, { .x=1, .y=1 });
 
         // PUA defines as introduced by FiraCode: https://github.com/tonsky/FiraCode/issues/1324
         case 0xEE00: return progressBar().left();
@@ -1542,6 +1520,65 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildElements(char32_t codepoint)
     return nullopt;
 }
 
+
+auto boxDashedHorizontal(auto& dashed, ImageSize size, int lineThickness){
+    auto const height = size.height;
+    auto const width = size.width;
+    auto const lightThickness = (unsigned) lineThickness;
+    auto const heavyThickness = (unsigned) lineThickness * 2;
+    auto const [dashCount, thicknessMode] = *dashed;
+    auto const thickness = thicknessMode == detail::Thickness::Heavy ? heavyThickness : lightThickness;
+    auto image = atlas::Buffer(unbox<size_t>(width) * unbox<size_t>(height), 0x00);
+
+        auto const y0 = (*height / 2) - ((unsigned) thickness / 2);
+        auto const w = (unsigned) thickness;
+        auto const p = unbox<double>(width) / static_cast<double>(dashCount * 2.0);
+
+        auto x0 = round(p / 2.0);
+        for ([[maybe_unused]] auto const _: iota(0u, dashCount))
+        {
+            auto const x0l = static_cast<int>(round(x0));
+            for (auto const y: iota(y0, y0 + w))
+                for (auto const x: iota(x0l, x0l + static_cast<int>(p)))
+                    image[(y * unbox(width)) + unsigned(x)] = 0xFF;
+            x0 += unbox<double>(width) / static_cast<double>(dashCount);
+        }
+
+        return image;
+
+}
+
+
+auto boxDashedVertical(auto& dashed, ImageSize size, int lineThickness)
+{
+    auto const height = size.height;
+    auto const width = size.width;
+    auto const lightThickness = (unsigned) lineThickness;
+    auto const heavyThickness = (unsigned) lineThickness * 2;
+    auto image = atlas::Buffer(unbox<size_t>(width) * unbox<size_t>(height), 0x00);
+    auto const [dashCount, thicknessMode] = *dashed;
+    auto const thickness = thicknessMode == detail::Thickness::Heavy ? heavyThickness : lightThickness;
+
+    auto const x0 = (*width / 2) - ((unsigned) thickness / 2);
+    auto const w = (unsigned) thickness;
+    auto const p = unbox<double>(height) / static_cast<double>(dashCount * 2.0);
+
+    auto y0 = round(p / 2.0);
+    for ([[maybe_unused]] auto const i: iota(0u, dashCount))
+    {
+        auto const y0l = static_cast<unsigned>(round(y0));
+        for (auto const y: iota(y0l, y0l + static_cast<unsigned>(p)))
+            for (auto const x: iota(x0, x0 + w))
+                image[(y * unbox(width)) + unsigned(x)] = 0xFF;
+        y0 += unbox<double>(height) / static_cast<double>(dashCount);
+    }
+
+    return image;
+}
+
+
+
+
 optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
                                                              ImageSize size,
                                                              int lineThickness)
@@ -1549,7 +1586,7 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
     if (!(codepoint >= 0x2500 && codepoint <= 0x257F))
         return nullopt;
 
-    auto box = detail::boxDrawingDefinitions[codepoint - 0x2500];
+    auto box = detail::BoxDrawingDefinitions[codepoint - 0x2500];
 
     auto const height = size.height;
     auto const width = size.width;
@@ -1564,53 +1601,25 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
 
     if (auto const dashed = box.get_dashed_horizontal())
     {
-        auto const [dashCount, thicknessMode] = *dashed;
-        auto const thickness = thicknessMode == detail::Thickness::Heavy ? heavyThickness : lightThickness;
-
-        auto const y0 = (*height / 2) - (unsigned) thickness / 2;
-        auto const w = (unsigned) thickness;
-        auto const p = unbox<double>(width) / static_cast<double>(dashCount * 2.0);
-
-        auto x0 = round(p / 2.0);
-        for ([[maybe_unused]] auto const _: iota(0u, dashCount))
-        {
-            auto const x0_ = static_cast<int>(round(x0));
-            for (auto const y: iota(y0, y0 + w))
-                for (auto const x: iota(x0_, x0_ + static_cast<int>(p)))
-                    image[y * *width + unsigned(x)] = 0xFF;
-            x0 += unbox<double>(width) / static_cast<double>(dashCount);
-        }
-
-        return image;
+        return boxDashedHorizontal(dashed, size, lineThickness);
     }
 
     if (auto const dashed = box.get_dashed_vertical())
     {
-        auto const [dashCount, thicknessMode] = *dashed;
-        auto const thickness = thicknessMode == detail::Thickness::Heavy ? heavyThickness : lightThickness;
-
-        auto const x0 = (*width / 2) - (unsigned) thickness / 2;
-        auto const w = (unsigned) thickness;
-        auto const p = unbox<double>(height) / static_cast<double>(dashCount * 2.0);
-
-        auto y0 = round(p / 2.0);
-        for ([[maybe_unused]] auto const i: iota(0u, dashCount))
-        {
-            auto const y0_ = static_cast<unsigned>(round(y0));
-            for (auto const y: iota(y0_, y0_ + static_cast<unsigned>(p)))
-                for (auto const x: iota(x0, x0 + w))
-                    image[y * *width + unsigned(x)] = 0xFF;
-            y0 += unbox<double>(height) / static_cast<double>(dashCount);
-        }
-
-        return image;
+        return boxDashedVertical(dashed, size, lineThickness);
     }
 
     // left & right
     {
-        auto const left = tuple { box.left_, 0u, *width / 2, true };
-        auto const right = tuple { box.right_, *width / 2, *width, false };
+        auto const left = tuple { box.leftval, 0u, *width / 2, true };
+        auto const right = tuple { box.rightval, *width / 2, *width, false };
         auto const offset = horizontalOffset;
+
+        auto fillImage = [&](auto ymax, auto xmax, auto x0, auto y0){
+            for (auto const yi: iota(0u, ymax))
+                for (auto const xi: iota(0u, xmax))
+                    image[((y0 + yi) * unbox(width)) + x0 + xi] = 0xFF;
+        };
         for (auto const& pq: { left, right })
         {
             auto const lm = get<0>(pq);
@@ -1620,7 +1629,7 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
             {
                 case detail::NoLine: break;
                 case detail::Light: {
-                    auto const y0 = offset - lightThickness / 2;
+                    auto const y0 = offset - (lightThickness / 2);
                     // BoxDrawingLog()("{}: line:{}, x:{}..{}, y:{}..{}",
                     //                 isFirst ? "left" : "right",
                     //                 to_stringview(lm),
@@ -1629,28 +1638,21 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
                     //                 y0,
                     //                 y0 + lightThickness - 1,
                     //                 offset);
-                    for (auto const yi: iota(0u, lightThickness))
-                        for (auto const xi: iota(0u, x1 - x0))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    fillImage(lightThickness, x1 - x0, x0, y0);
+
                     break;
                 }
                 case detail::Double: {
-                    auto y0 = offset - lightThickness / 2 - lightThickness;
-                    for (auto const yi: iota(0u, lightThickness))
-                        for (auto const xi: iota(0u, x1 - x0))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    auto y0 = offset - (lightThickness / 2) - lightThickness;
+                    fillImage(lightThickness, x1 - x0, x0, y0);
 
                     y0 = offset + lightThickness / 2;
-                    for (auto const yi: iota(0u, lightThickness))
-                        for (auto const xi: iota(0u, x1 - x0))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    fillImage(lightThickness, x1 - x0, x0, y0);
                     break;
                 }
                 case detail::Heavy: {
-                    auto const y0 = offset - heavyThickness / 2;
-                    for (auto const yi: iota(0u, heavyThickness))
-                        for (auto const xi: iota(0u, x1 - x0))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    auto const y0 = offset - (heavyThickness / 2);
+                    fillImage(heavyThickness, x1 - x0, x0, y0);
                     break;
                 }
                 case detail::Light2:
@@ -1669,9 +1671,14 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
     // up & down
     // XXX same as (left & right) but with x/y and w/h coords swapped. can we reuse that?
     {
-        auto const up = tuple { box.down_, 0u, *height / 2, true };
-        auto const down = tuple { box.up_, *height / 2, *height, false };
+        auto const up = tuple { box.downval, 0u, *height / 2, true };
+        auto const down = tuple { box.upval, *height / 2, *height, false };
         auto const offset = verticalOffset;
+        auto fillImage = [&](auto ymax, auto xmax, auto x0, auto y0){
+            for (auto const yi: iota(0u, ymax))
+                for (auto const xi: iota(0u, xmax))
+                    image[((y0 + yi) * unbox(width)) + x0 + xi] = 0xFF;
+        };
         for (auto const& pq: { up, down })
         {
             auto const lm = get<0>(pq);
@@ -1682,29 +1689,21 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
             {
                 case detail::NoLine: break;
                 case detail::Light: {
-                    auto const x0 = offset - lightThickness / 2;
-                    for (auto const yi: iota(0u, y1 - y0))
-                        for (auto const xi: iota(0u, lightThickness))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    auto const x0 = offset - (lightThickness / 2);
+                    fillImage(y1 - y0, lightThickness, x0, y0);
                     break;
                 }
                 case detail::Double: {
-                    auto x0 = offset - lightThickness / 2 - lightThickness;
-                    for (auto const yi: iota(0u, y1 - y0))
-                        for (auto const xi: iota(0u, lightThickness))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    auto x0 = offset - (lightThickness / 2) - lightThickness;
+                    fillImage(y1 - y0, lightThickness, x0, y0);
 
                     x0 = offset - lightThickness / 2 + lightThickness;
-                    for (auto const yi: iota(0u, y1 - y0))
-                        for (auto const xi: iota(0u, lightThickness))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    fillImage(y1 - y0, lightThickness, x0, y0);
                     break;
                 }
                 case detail::Heavy: {
-                    auto const x0 = offset - (lightThickness * 3) / 2;
-                    for (auto const yi: iota(0u, y1 - y0))
-                        for (auto const xi: iota(0u, lightThickness * 3))
-                            image[(y0 + yi) * *width + x0 + xi] = 0xFF;
+                    auto const x0 = offset - ((lightThickness * 3) / 2);
+                    fillImage(y1 - y0, lightThickness * 3, x0, y0);
                     break;
                 }
                 case detail::Light2:
@@ -1717,35 +1716,35 @@ optional<atlas::Buffer> BoxDrawingRenderer::buildBoxElements(char32_t codepoint,
         }
     }
 
-    if (box.diagonal_ != detail::NoDiagonal)
+    if (box.diagonalval != detail::NoDiagonal)
     {
         auto const a = height.as<double>() / width.as<double>();
         auto const aInv = 1.0 / a;
         using Diagonal = detail::Diagonal;
-        if (unsigned(box.diagonal_) & unsigned(Diagonal::Forward))
+        if (unsigned(box.diagonalval) & unsigned(Diagonal::Forward))
         {
             for (auto const y: iota(0u, height.as<unsigned>()))
             {
                 auto const x = int(double(y) * aInv);
                 for (auto const xi: iota(-int(lineThickness) / 2, int(lineThickness) / 2))
-                    image[y * *width + (unsigned) max(0, min(x + xi, unbox<int>(width) - 1))] = 0xFF;
+                    image[(y * unbox(width)) + (unsigned) max(0, min(x + xi, unbox<int>(width) - 1))] = 0xFF;
             }
         }
-        if (unsigned(box.diagonal_) & unsigned(Diagonal::Backward))
+        if (unsigned(box.diagonalval) & unsigned(Diagonal::Backward))
         {
             for (auto const y: iota(0u, height.as<unsigned>()))
             {
                 auto const x = int(double(*height - y - 1) * aInv);
                 for (auto const xi: iota(-int(lineThickness) / 2, int(lineThickness) / 2))
-                    image[y * *width + (unsigned) max(0, min(x + xi, unbox<int>(width) - 1))] = 0xFF;
+                    image[(y * unbox(width)) + (unsigned) max(0, min(x + xi, unbox<int>(width) - 1))] = 0xFF;
             }
         }
     }
 
-    if (box.arc_ != NoArc)
-        detail::drawArc(image, size, lightThickness, box.arc_);
+    if (box.arcval != NoArc)
+        detail::drawArc(image, size, lightThickness, box.arcval);
 
-    BoxDrawingLog()("BoxDrawing: build U+{:04X} ({})", static_cast<uint32_t>(codepoint), size);
+    boxDrawingLog()("BoxDrawing: build U+{:04X} ({})", static_cast<uint32_t>(codepoint), size);
 
     return image;
 }
@@ -1754,4 +1753,4 @@ void BoxDrawingRenderer::inspect(std::ostream& /*output*/) const
 {
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

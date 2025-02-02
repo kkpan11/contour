@@ -1,31 +1,22 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
+
+#include <vtbackend/primitives.h>
 
 #include <text_shaper/font.h>
 
-#include <crispy/ImageSize.h>
 #include <crispy/logstore.h>
 #include <crispy/point.h>
 #include <crispy/size.h>
 
-#include <fmt/format.h>
+#include <libunicode/emoji_segmenter.h>
+#include <libunicode/ucd.h>
 
 #include <gsl/span>
 #include <gsl/span_ext>
 
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <optional>
 #include <string>
@@ -34,17 +25,14 @@
 #include <utility>
 #include <vector>
 
-#include <libunicode/emoji_segmenter.h>
-#include <libunicode/ucd.h>
-
 namespace text
 {
 
-auto const inline RasterizerLog = logstore::Category("font.render", "Logs details about rendering glyphs.");
-auto const inline TextShapingLog = logstore::Category("font.textshaping", "Logs details about text shaping.");
+auto const inline rasterizerLog = logstore::category("font.render", "Logs details about rendering glyphs.");
+auto const inline textShapingLog = logstore::category("font.textshaping", "Logs details about text shaping.");
 
 // NOLINTBEGIN(readability-identifier-naming)
-enum class bitmap_format
+enum class bitmap_format : uint8_t
 {
     alpha_mask,
     rgb,
@@ -66,8 +54,8 @@ constexpr size_t pixel_size(bitmap_format format) noexcept
 struct rasterized_glyph
 {
     glyph_index index;
-    crispy::ImageSize bitmapSize; // Glyph bitmap size in pixels.
-    crispy::Point position;       // top-left position of the bitmap, relative to the basline's origin.
+    vtbackend::ImageSize bitmapSize; // Glyph bitmap size in pixels.
+    crispy::point position;          // top-left position of the bitmap, relative to the basline's origin.
     bitmap_format format;
     std::vector<uint8_t> bitmap;
 
@@ -79,13 +67,13 @@ struct rasterized_glyph
     }
 };
 
-std::tuple<rasterized_glyph, float> scale(rasterized_glyph const& bitmap, crispy::ImageSize boundingBox);
+std::tuple<rasterized_glyph, float> scale(rasterized_glyph const& bitmap, vtbackend::ImageSize boundingBox);
 
 struct glyph_position
 {
     glyph_key glyph;
-    crispy::Point offset;
-    crispy::Point advance;
+    crispy::point offset;
+    crispy::point advance;
 
     unicode::PresentationStyle presentation {};
 };
@@ -166,67 +154,49 @@ class shaper
 
 } // end namespace text
 
-namespace fmt
-{ // {{{
+// {{{ fmtlib support
 template <>
-struct formatter<text::bitmap_format>
+struct std::formatter<text::bitmap_format>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::bitmap_format value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::bitmap_format value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case text::bitmap_format::alpha_mask: return fmt::format_to(ctx.out(), "alpha_mask");
-            case text::bitmap_format::rgb: return fmt::format_to(ctx.out(), "rgb");
-            case text::bitmap_format::rgba: return fmt::format_to(ctx.out(), "rgba");
-            default: return fmt::format_to(ctx.out(), "{}", static_cast<unsigned>(value));
+            case text::bitmap_format::alpha_mask: name = "alpha_mask"; break;
+            case text::bitmap_format::rgb: name = "rgb"; break;
+            case text::bitmap_format::rgba: name = "rgba"; break;
         }
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<text::glyph_position>
+struct std::formatter<text::glyph_position>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::glyph_position const& gpos, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::glyph_position const& gpos, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "({}+{}+{}|{}+{})",
-                              gpos.glyph.index.value,
-                              gpos.offset.x,
-                              gpos.offset.y,
-                              gpos.advance.x,
-                              gpos.advance.y);
+        return formatter<std::string>::format(std::format("({}+{}+{}|{}+{})",
+                                                          gpos.glyph.index.value,
+                                                          gpos.offset.x,
+                                                          gpos.offset.y,
+                                                          gpos.advance.x,
+                                                          gpos.advance.y),
+                                              ctx);
     }
 };
 
 template <>
-struct formatter<text::rasterized_glyph>
+struct std::formatter<text::rasterized_glyph>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(text::rasterized_glyph const& glyph, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(text::rasterized_glyph const& glyph, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(),
-                              "rasterized_glyph({}, {}+{}, {})",
-                              glyph.index.value,
-                              glyph.bitmapSize,
-                              glyph.position,
-                              glyph.format);
+        return formatter<std::string>::format(std::format("rasterized_glyph({}, {}+{}, {})",
+                                                          glyph.index.value,
+                                                          glyph.bitmapSize,
+                                                          glyph.position,
+                                                          glyph.format),
+                                              ctx);
     }
 };
-} // namespace fmt
+// }}}

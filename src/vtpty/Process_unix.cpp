@@ -1,41 +1,21 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtpty/Process.h>
 #include <vtpty/Pty.h>
 #include <vtpty/UnixPty.h>
 
-#if defined(__linux__)
-    #include <vtpty/LinuxPty.h>
-#endif
-
 #include <crispy/overloaded.h>
-#include <crispy/stdfs.h>
 #include <crispy/utils.h>
-
-#include <fmt/format.h>
 
 #include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
+#include <filesystem>
+#include <format>
 #include <mutex>
-#include <numeric>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 
 #if !defined(__FreeBSD__)
     #include <utmp.h>
@@ -62,14 +42,10 @@ using namespace std;
 using namespace std::string_view_literals;
 using crispy::trimRight;
 
-namespace terminal
-{
+namespace fs = std::filesystem;
 
-#if defined(__linux__)
-using SystemPty = LinuxPty;
-#else
-using SystemPty = UnixPty;
-#endif
+namespace vtpty
+{
 
 namespace
 {
@@ -109,7 +85,7 @@ struct Process::Private
 {
     string path;
     vector<string> args;
-    FileSystem::path cwd;
+    fs::path cwd;
     Environment env;
     bool escapeSandbox;
 
@@ -123,17 +99,23 @@ struct Process::Private
 
 Process::Process(string const& path,
                  vector<string> const& args,
-                 FileSystem::path const& cwd,
+                 fs::path const& cwd,
                  Environment const& env,
                  bool escapeSandbox,
                  unique_ptr<Pty> pty):
-    _d(new Private { path, args, cwd, env, escapeSandbox, std::move(pty) }, [](Private* p) { delete p; })
+    _d(new Private { .path = path,
+                     .args = args,
+                     .cwd = cwd,
+                     .env = env,
+                     .escapeSandbox = escapeSandbox,
+                     .pty = std::move(pty) },
+       [](Private* p) { delete p; })
 {
 }
 
 bool Process::isFlatpak()
 {
-    static bool check = FileSystem::exists("/.flatpak-info");
+    static bool const check = fs::exists("/.flatpak-info");
     return check;
 }
 
@@ -144,7 +126,7 @@ void Process::start()
     _d->pid = fork();
 
     UnixPipe* stdoutFastPipe = [this]() -> UnixPipe* {
-        if (auto* p = dynamic_cast<SystemPty*>(_d->pty.get()))
+        if (auto* p = dynamic_cast<UnixPty*>(_d->pty.get()))
             return &p->stdoutFastPipe();
         return nullptr;
     }();
@@ -194,21 +176,21 @@ void Process::start()
                 realArgs.emplace_back("--host");
                 realArgs.emplace_back("--watch-bus");
                 realArgs.emplace_back(
-                    fmt::format("--env=TERMINFO={}", terminfoBaseDirectory.generic_string()));
+                    std::format("--env=TERMINFO={}", terminfoBaseDirectory.generic_string()));
                 if (stdoutFastPipe)
                 {
+                    realArgs.emplace_back(std::format("--forward-fd={}", StdoutFastPipeFdStr));
                     realArgs.emplace_back(
-                        fmt::format("--env={}={}", StdoutFastPipeEnvironmentName, StdoutFastPipeFdStr));
-                    realArgs.emplace_back(fmt::format("--forward-fd={}", StdoutFastPipeFdStr));
+                        std::format("--env={}={}", StdoutFastPipeEnvironmentName, StdoutFastPipeFdStr));
                 }
                 if (!_d->cwd.empty())
-                    realArgs.emplace_back(fmt::format("--directory={}", _d->cwd.generic_string()));
-                realArgs.emplace_back(fmt::format("--env=TERM={}", "contour"));
+                    realArgs.emplace_back(std::format("--directory={}", _d->cwd.generic_string()));
+                realArgs.emplace_back(std::format("--env=TERM={}", "contour"));
                 for (auto&& [name, value]: _d->env)
-                    realArgs.emplace_back(fmt::format("--env={}={}", name, value));
+                    realArgs.emplace_back(std::format("--env={}={}", name, value));
                 if (stdoutFastPipe)
                     realArgs.emplace_back(
-                        fmt::format("--env={}={}", StdoutFastPipeEnvironmentName, StdoutFastPipeFd));
+                        std::format("--env={}={}", StdoutFastPipeEnvironmentName, StdoutFastPipeFd));
                 realArgs.push_back(_d->path);
                 for (auto const& arg: _d->args)
                     realArgs.push_back(arg);
@@ -216,7 +198,7 @@ void Process::start()
                 return createArgv("/usr/bin/flatpak-spawn", realArgs, 0);
             }();
 
-            if (auto* pty = dynamic_cast<SystemPty*>(_d->pty.get()))
+            if (auto* pty = dynamic_cast<UnixPty*>(_d->pty.get()))
             {
                 if (pty->stdoutFastPipe().writer() != -1)
                 {
@@ -275,6 +257,11 @@ Pty const& Process::pty() const noexcept
     return *_d->pty;
 }
 
+void Process::waitForClosed()
+{
+    (void) wait();
+}
+
 optional<Process::ExitStatus> Process::checkStatus() const
 {
     return _d->checkStatus(false);
@@ -294,10 +281,12 @@ optional<Process::ExitStatus> Process::Private::checkStatus(bool waitForExit) co
 
     if (rv < 0)
     {
+        auto const waitPidErrorCode = errno;
         auto const _ = lock_guard { exitStatusMutex };
         if (exitStatus.has_value())
             return exitStatus;
-        throw runtime_error { "waitpid: "s + getLastErrorAsString() };
+        errorLog()("waitpid() failed: {}", strerror(waitPidErrorCode));
+        return std::nullopt;
     }
     else if (rv == 0 && !waitForExit)
         return nullopt;
@@ -337,14 +326,12 @@ vector<string> Process::loginShell(bool escapeSandbox)
     {
 #if defined(__APPLE__)
         crispy::ignore_unused(escapeSandbox);
-        auto shell = string(pw->pw_shell);
-        auto index = shell.rfind('/');
-        return { "/bin/bash", "-c", fmt::format("exec -a -{} {}", shell.substr(index + 1, 5), pw->pw_shell) };
+        return { pw->pw_shell };
 #else
         if (isFlatpak() && escapeSandbox)
         {
             char buf[1024];
-            auto const cmd = fmt::format("flatpak-spawn --host getent passwd {}", pw->pw_name);
+            auto const cmd = std::format("flatpak-spawn --host getent passwd {}", pw->pw_name);
             FILE* fp = popen(cmd.c_str(), "r");
             auto fpCloser = crispy::finally { [fp]() {
                 pclose(fp);
@@ -366,12 +353,25 @@ vector<string> Process::loginShell(bool escapeSandbox)
         return { "/bin/sh"s };
 }
 
-FileSystem::path Process::homeDirectory()
+std::string Process::userName()
 {
     if (passwd const* pw = getpwuid(getuid()); pw != nullptr)
-        return FileSystem::path(pw->pw_dir);
+        return pw->pw_name;
+
+    if (char const* user = getenv("USER"); user != nullptr)
+        return user;
+
+    return "unknown";
+}
+
+fs::path Process::homeDirectory()
+{
+    if (auto const* home = getenv("HOME"); home != nullptr)
+        return fs::path(home);
+    else if (passwd const* pw = getpwuid(getuid()); pw != nullptr)
+        return fs::path(pw->pw_dir);
     else
-        return FileSystem::path("/");
+        return fs::path("/");
 }
 
 string Process::workingDirectory() const
@@ -379,8 +379,8 @@ string Process::workingDirectory() const
 #if defined(__linux__)
     try
     {
-        auto const path = FileSystem::path { fmt::format("/proc/{}/cwd", _d->pid) };
-        auto const cwd = FileSystem::read_symlink(path);
+        auto const path = fs::path { std::format("/proc/{}/cwd", _d->pid) };
+        auto const cwd = fs::read_symlink(path);
         return cwd.string();
     }
     catch (...)
@@ -392,7 +392,7 @@ string Process::workingDirectory() const
     try
     {
         auto vpi = proc_vnodepathinfo {};
-        auto const pid = tcgetpgrp(unbox<int>(static_cast<SystemPty const*>(_d->pty.get())->handle()));
+        auto const pid = tcgetpgrp(unbox<int>(static_cast<UnixPty const*>(_d->pty.get())->handle()));
 
         if (proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vpi, sizeof(vpi)) <= 0)
             return "."s;
@@ -409,4 +409,4 @@ string Process::workingDirectory() const
 #endif
 }
 
-} // namespace terminal
+} // namespace vtpty

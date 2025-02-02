@@ -1,19 +1,8 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+#include <vtbackend/primitives.h>
+
 #include <text_shaper/shaper.h>
 
-#include <crispy/ImageSize.h>
 #include <crispy/logstore.h>
 
 #include <range/v3/view/iota.hpp>
@@ -35,8 +24,8 @@ namespace
 {
     template <std::size_t NumComponents>
     constexpr void scaleDownExplicit(vector<uint8_t> const& inputBitmap,
-                                     crispy::ImageSize inputSize,
-                                     crispy::ImageSize outputSize,
+                                     vtbackend::ImageSize inputSize,
+                                     vtbackend::ImageSize outputSize,
                                      size_t factor,
                                      vector<uint8_t>& outputBitmap) noexcept
     {
@@ -51,7 +40,8 @@ namespace
                 unsigned int count = 0;
                 for (size_t y = sr; y < min(sr + factor, unbox<size_t>(inputSize.height)); y++)
                 {
-                    uint8_t const* p = inputBitmap.data() + (y * unbox<size_t>(inputSize.width) * 4) + sc * 4;
+                    uint8_t const* p =
+                        inputBitmap.data() + (y * unbox<size_t>(inputSize.width) * 4) + (sc * 4);
                     for (auto x = sc; x < min(sc + factor, unbox<size_t>(inputSize.width)); x++, count++)
                     {
                         for (size_t i = 0; i < NumComponents; ++i)
@@ -70,11 +60,10 @@ namespace
 
 } // namespace
 
-tuple<rasterized_glyph, float> scale(rasterized_glyph const& bitmap, crispy::ImageSize boundingBox)
+tuple<rasterized_glyph, float> scale(rasterized_glyph const& bitmap, vtbackend::ImageSize boundingBox)
 {
     // NB: We're only supporting down-scaling.
-    assert(bitmap.bitmapSize.width >= boundingBox.width);
-    assert(bitmap.bitmapSize.height >= boundingBox.height);
+    assert(bitmap.bitmapSize.width >= boundingBox.width || bitmap.bitmapSize.height >= boundingBox.height);
 
     auto const ratioX = unbox<double>(bitmap.bitmapSize.width) / unbox<double>(boundingBox.width);
     auto const ratioY = unbox<double>(bitmap.bitmapSize.height) / unbox<double>(boundingBox.height);
@@ -82,11 +71,12 @@ tuple<rasterized_glyph, float> scale(rasterized_glyph const& bitmap, crispy::Ima
     auto const factor = static_cast<unsigned>(ceil(ratio));
 
     // Adjust new image size to respect ratio.
-    auto const newSize =
-        crispy::ImageSize { crispy::Width::cast_from(unbox<double>(bitmap.bitmapSize.width) / ratio),
-                            crispy::Height::cast_from(unbox<double>(bitmap.bitmapSize.height) / ratio) };
+    auto const newSize = vtbackend::ImageSize {
+        vtbackend::Width::cast_from(unbox<double>(bitmap.bitmapSize.width) / ratio),
+        vtbackend::Height::cast_from(unbox<double>(bitmap.bitmapSize.height) / ratio)
+    };
 
-    RasterizerLog()("scaling {} from {} to {}, ratio {}x{} ({}), factor {}",
+    rasterizerLog()("scaling {} from {} to {}, ratio {}x{} ({}), factor {}",
                     bitmap.format,
                     bitmap.bitmapSize,
                     newSize,

@@ -1,26 +1,17 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2021 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <text_shaper/font.h>
 #include <text_shaper/fontconfig_locator.h>
 
 #include <crispy/assert.h>
+#include <crispy/utils.h>
 
+#include <range/v3/view/drop.hpp>
 #include <range/v3/view/iota.hpp>
 
 #include <fontconfig/fontconfig.h>
 
 #include <string_view>
+#include <variant>
 
 using std::nullopt;
 using std::optional;
@@ -45,11 +36,11 @@ namespace
             case FC_DUAL: return "dual";
             case FC_MONO: return "mono";
             case FC_CHARCELL: return "charcell";
-            default: return fmt::format("({})", value);
+            default: return std::format("({})", value);
         }
     }
 
-    auto constexpr fontWeightMappings = std::array<std::pair<font_weight, int>, 12> { {
+    auto constexpr FontWeightMappings = std::array<std::pair<font_weight, int>, 12> { {
         { font_weight::thin, FC_WEIGHT_THIN },
         { font_weight::extra_light, FC_WEIGHT_EXTRALIGHT },
         { font_weight::light, FC_WEIGHT_LIGHT },
@@ -65,7 +56,7 @@ namespace
     } };
 
     // clang-format off
-    auto constexpr fontSlantMappings = std::array<std::pair<font_slant, int>, 3>{ {
+    auto constexpr FontSlantMappings = std::array<std::pair<font_slant, int>, 3>{ {
         { font_slant::italic, FC_SLANT_ITALIC },
         { font_slant::oblique, FC_SLANT_OBLIQUE },
         { font_slant::normal, FC_SLANT_ROMAN }
@@ -74,7 +65,7 @@ namespace
 
     constexpr optional<font_weight> fcToFontWeight(int value) noexcept
     {
-        for (auto const& mapping: fontWeightMappings)
+        for (auto const& mapping: FontWeightMappings)
             if (mapping.second == value)
                 return mapping.first;
         return nullopt;
@@ -82,7 +73,7 @@ namespace
 
     constexpr optional<font_slant> fcToFontSlant(int value) noexcept
     {
-        for (auto const& mapping: fontSlantMappings)
+        for (auto const& mapping: FontSlantMappings)
             if (mapping.second == value)
                 return mapping.first;
         return nullopt;
@@ -90,7 +81,7 @@ namespace
 
     int fcWeight(font_weight weight) noexcept
     {
-        for (auto const& mapping: fontWeightMappings)
+        for (auto const& mapping: FontWeightMappings)
             if (mapping.first == weight)
                 return mapping.second;
         crispy::fatal("Implementation error. font weight cannot be mapped.");
@@ -98,7 +89,7 @@ namespace
 
     constexpr int fcSlant(font_slant slant) noexcept
     {
-        for (auto const& mapping: fontSlantMappings)
+        for (auto const& mapping: FontSlantMappings)
             if (mapping.first == slant)
                 return mapping.second;
         return FC_SLANT_ROMAN;
@@ -139,27 +130,27 @@ namespace
 
 } // namespace
 
-struct fontconfig_locator::Private
+struct fontconfig_locator::private_tag
 {
     // currently empty, maybe later something (such as caching)?
     FcConfig* ftConfig = nullptr;
 
-    Private()
+    private_tag()
     {
         FcInit();
         ftConfig = FcInitLoadConfigAndFonts(); // Most convenient of all the alternatives
     }
 
-    ~Private()
+    ~private_tag()
     {
-        LocatorLog()("~fontconfig_locator.dtor");
+        locatorLog()("~fontconfig_locator.dtor");
         FcConfigDestroy(ftConfig);
         FcFini();
     }
 };
 
 fontconfig_locator::fontconfig_locator():
-    _d { new Private(), [](Private* p) {
+    _d { new private_tag(), [](private_tag* p) {
             delete p;
         } }
 {
@@ -167,7 +158,7 @@ fontconfig_locator::fontconfig_locator():
 
 font_source_list fontconfig_locator::locate(font_description const& description)
 {
-    LocatorLog()("Locating font chain for: {}", description);
+    locatorLog()("Locating font chain for: {}", description);
     auto pat =
         unique_ptr<FcPattern, void (*)(FcPattern*)>(FcPatternCreate(), [](auto p) { FcPatternDestroy(p); });
 
@@ -226,27 +217,14 @@ font_source_list fontconfig_locator::locate(font_description const& description)
     };
 #endif
 
-    for (int i = 0; i < fs->nfont; ++i)
-    {
-        FcPattern* font = fs->fonts[i];
-
+    auto addFont = [&](auto const& font) {
         FcChar8* file = nullptr;
         if (FcPatternGetString(font, FC_FILE, 0, &file) != FcResultMatch)
-            continue;
-
-#if defined(FC_COLOR) // Not available on OS/X?
-// FcBool color = FcFalse;
-// FcPatternGetInteger(font, FC_COLOR, 0, &color);
-// if (color && !color)
-// {
-//     LocatorLog()("Skipping font (contains color). {}", (char const*) file);
-//     continue;
-// }
-#endif
+            return;
 
         int spacing = -1;
         FcPatternGetInteger(font, FC_SPACING, 0, &spacing);
-        if (description.strict_spacing)
+        if (description.strictSpacing)
         {
             // Some fonts don't seem to tell us their spacing attribute. ;-(
             // But instead of ignoring them all together, try to be more friendly.
@@ -254,11 +232,11 @@ font_source_list fontconfig_locator::locate(font_description const& description)
                 && ((description.spacing == font_spacing::proportional && spacing < FC_PROPORTIONAL)
                     || (description.spacing == font_spacing::mono && spacing < FC_MONO)))
             {
-                LocatorLog()("Skipping font: {} ({} < {}).",
+                locatorLog()("Skipping font: {} ({} < {}).",
                              (char const*) (file),
                              fcSpacingStr(spacing),
                              fcSpacingStr(FC_DUAL));
-                continue;
+                return;
             }
         }
 
@@ -274,15 +252,59 @@ font_source_list fontconfig_locator::locate(font_description const& description)
         if (FcPatternGetInteger(font, FC_SLANT, 0, &integerValue) == FcResultMatch)
             slant = fcToFontSlant(integerValue);
 
-        output.emplace_back(font_path { string { (char const*) (file) }, ttcIndex, weight, slant });
-        LocatorLog()("Font {} (ttc index {}, weight {}, slant {}, spacing {}) in chain: {}",
+        output.emplace_back(font_path { .value = string { (char const*) (file) },
+                                        .collectionIndex = ttcIndex,
+                                        .weight = weight,
+                                        .slant = slant });
+        locatorLog()("Font {} (ttc index {}, weight {}, slant {}, spacing {}) in chain: {}",
                      output.size(),
                      ttcIndex,
-                     weight.has_value() ? fmt::format("{}", *weight) : "NONE",
-                     slant.has_value() ? fmt::format("{}", *slant) : "NONE",
+                     weight.has_value() ? std::format("{}", *weight) : "NONE",
+                     slant.has_value() ? std::format("{}", *slant) : "NONE",
                      spacing,
                      (char const*) file);
-    }
+    };
+
+    // First font is the primary font that is best matching for description.family, we always
+    // include that one.on.
+    addFont(fs->fonts[0]);
+
+    std::visit(crispy::overloaded {
+                   [](font_fallback_none) {},
+                   [&](font_fallback_list const& list) {
+                       // find font in the fallback list and add it
+                       for (auto&& fallbackFont: list.fallbackFonts)
+                       {
+                           for (auto i: ranges::views::ints(1, fs->nfont))
+                           {
+                               FcPattern* font = fs->fonts[i];
+
+                               FcChar8* family = nullptr;
+                               FcPatternGetString(font, FC_FAMILY, 0, &family);
+
+                               // remove spaces from the fonts names
+                               auto fallbackFontNoSpaces = fallbackFont;
+                               fallbackFontNoSpaces.erase(
+                                   std::remove(fallbackFontNoSpaces.begin(), fallbackFontNoSpaces.end(), ' '),
+                                   fallbackFontNoSpaces.end());
+                               std::string familyNoSpaces = (char const*) family;
+                               familyNoSpaces.erase(
+                                   std::remove(familyNoSpaces.begin(), familyNoSpaces.end(), ' '),
+                                   familyNoSpaces.end());
+                               if (fallbackFontNoSpaces == familyNoSpaces)
+                               {
+                                   addFont(font);
+                                   break;
+                               }
+                           }
+                       }
+                   },
+                   [&](std::monostate) {
+                       for (auto i: ranges::views::ints(1, fs->nfont))
+                           addFont(fs->fonts[i]);
+                   },
+               },
+               description.fontFallback);
 
 #if defined(_WIN32)
     #define FONTDIR "C:\\Windows\\Fonts\\"
@@ -368,8 +390,8 @@ font_source_list fontconfig_locator::all()
         if (spacing < FC_DUAL)
             continue;
 
-        LocatorLog()("font({}, {}, {})", fcWeightStr(weight), fcSlantStr(slant), (char*) family);
-        output.emplace_back(font_path { (char const*) filename });
+        locatorLog()("font({}, {}, {})", fcWeightStr(weight), fcSlantStr(slant), (char*) family);
+        output.emplace_back(font_path { .value = (char const*) filename });
     }
 
     FcObjectSetDestroy(os);

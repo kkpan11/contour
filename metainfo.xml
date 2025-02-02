@@ -39,7 +39,7 @@
       for everyday use. It is aiming for power users with a modern feature mindset.
     </p>
     <ul>
-      <li>Available on all 4 major platforms, Linux, OS/X, FreeBSD, Windows.</li>
+      <li>Available on all major platforms, Linux, macOS, FreeBSD, OpenBSD, Windows.</li>
       <li>GPU-accelerated rendering.</li>
       <li>Font ligatures support (such as in Fira Code).</li>
       <li>Unicode: Emoji support (-: 🌈 💝 😛 👪 - including ZWJ, VS15, VS16 emoji :-)</li>
@@ -64,6 +64,7 @@
       <li>Builtin Fira Code inspired progress bar support.</li>
       <li>Read-only mode, protecting against accidental user-input to the running application, such as Ctrl+C.</li>
       <li>VT320 Host-programmable and Indicator status line support.</li>
+      <li>Size indicator on resize.</li>
       <li>and much more ...</li>
     </ul>
   </description>
@@ -103,12 +104,223 @@
 
     -->
 
-    <release version="0.3.13" urgency="medium" type="development">
+    <release version="0.6.2" urgency="medium" type="development">
       <description>
         <ul>
-          <li>Do not clear search term when entering search editor again.</li>
+          <li>Fixes `CancelSelection` default binding with escape (#1710)</li>
+          <li>Fixes `CreateTab` to sometimes spawn more than one tab (#1695)</li>
+          <li>Fixes crash using Chinese IME (#1707)</li>
+          <li>Ensure inserting new tabs happens right next to the currently active tab (#1695)</li>
+          <li>Allow glyphs to underflow if they are not bigger than the cell size (#1603)</li>
+          <li>Adds `MoveTabToLeft` and `MoveTabToRight` actions to move tabs around (#1695)</li>
+          <li>Adds `MoveTabTo` action to move tabs to a specific position (#1695)</li>
+          <li>Adds handling of control codes for Ctrl+5|6|7|8 (#1701)</li>
+          <li>Adds CenterCursor (`zz`) vi motion</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.6.1" urgency="medium" date="2024-12-31">
+      <description>
+        <ul>
+          <li>Do not abort when failing to create `XDG_STATE_HOME/contour/crash` directory</li>
+          <li>Fixes DECRQSS for SGR (#1696)</li>
+          <li>Fixes tab switch crash after resize</li>
+          <li>Fixes tab shrinking after tab creation/switches when a non-zero horizontal window margin is configured</li>
+          <li>Fixes startup crash when window is not yet fully initialized</li>
+          <li>Fixes backtab (Shift+Tab) handling (#1685)</li>
+          <li>Fixes various spelling typos across the codebase (#1688)</li>
+          <li>Improve tab close handling to better select previously focused tab</li>
+          <li>Change `colors` terminfo entry from 256 up to 32767 colors</li>
+          <li>Add action `SwitchToPreviousTab` to switch to the previously focused tab</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.6.0" urgency="medium" date="2024-12-26">
+      <description>
+        <ul>
+          <li>Fixes search editor preservation bug on exit from search mode</li>
+          <li>Expose current profile's name through env var `CONTOUR_PROFILE` (#1637)</li>
+          <li>Add terminal tabs (#90)</li>
+          <li>Add `SaveScreenshot` and `CopyScreenshot` action (#210)</li>
+          <li>Protect user from accidentally pasting too large input (#1198)</li>
+          <li>Add binding to exit normal mode with `Esc` (#1604)</li>
+          <li>Add config option to switch into insert mode after yank (#1604)</li>
+          <li>Add vi-like normal mode Jumps. `''`, `C-O` and `C-I` motions (#1101)</li>
+          <li>Improves window size/resize handling on HiDPI monitor settings (#1628)</li>
+          <li>Improves macOS key handling for Option+Left|Right keys to jump between words in the shell</li>
+          <li>Fixes cropping of underscore character for some fonts (#1603)</li>
+          <li>Fixes DECFRA limits (#1664)</li>
+          <li>Fixes underline styles not being reset on switching to a new style (#1365)</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.5.1" urgency="medium" date="2024-09-30">
+      <description>
+        <ul>
+          <li>Fixes vi-mode motions like `viW`, `yiW`, `oiW` as well as `B` and `W`</li>
+          <li>Fixes rendered backend loading from config</li>
+          <li>Fixes mouse wheel scrolling on High-DPI screens feeling too slow</li>
+          <li>Enable support for Unicode version 16.0.0 (#1606)</li>
+          <li>Port to C++20's `std::format()` (#1598)</li>
+          <li>Drop support for Ubuntu 23.10 and older. In order to have less burdain of maintencne, we only support the latest LTS of Ubuntu, which currently is 24.04 (#1607)</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.5.0" urgency="medium" date="2024-09-18">
+      <description>
+        <ul>
+          <li>macOS package is now Apple Silicon native</li>
+          <li>Add CoreText font fallback implementation for macOS (#1533)</li>
+          <li>Add Ubuntu-24.04 in github actions (#1460)</li>
+          <li>Add 'early_exit_threshold' config option (#1460)</li>
+          <li>Add AppImage package with Qt6 support (#586)</li>
+          <li>Add ability to customize the indicator statusline through configuration (#687)</li>
+          <li>Add generation of config file from internal state (#1282)</li>
+          <li>Add SGRSAVE and SGRRESTORE VT sequences to save and restore SGR state (They intentionally conflict with XTPUSHSGR and XTPOPSGR)</li>
+          <li>Add extended word selection feature (#1023)</li>
+          <li>Add some more missing vi input motions, such as `y$`, `o$`, and many others as initiated by `y` and `o` (#1441)</li>
+          <li>Add CPM fallback for the dependencies</li>
+          <li>Add static build</li>
+          <li>Add shell integration for bash shell.</li>
+          <li>Add better bell sound (#1378)</li>
+          <li>Add config entry to configure behaviour on exit from search mode</li>
+          <li>Add config entry to configure font fallback (#225)</li>
+          <li>Add handling of different input commands (#629)</li>
+          <li>Add key bindings disabled indicator for status line (#783)</li>
+          <li>Add support for highlighting matches of the currently selected text area (beyond double click)</li>
+          <li>When switching to normal mode screen will stay in same position (#808)</li>
+          <li>Add customizable per-input-mode default text/background coloring for indicator statusline (#1528)</li>
+          <li>Add option PasteSelection to paste text as a shell input (#1549)</li>
+          <li>Add case-insensitive smart search (#1410)</li>
+          <li>Add OpenBSD support</li>
+          <li>Add new CLI command: `contour info config` to list missing entries from config file (#1125).</li>
+          <li>Add xdg-terminal-exec support (#1570).</li>
+          <li>Add predefined color palettes (monokai, gruvbox-light/dark, solarized-light/dark, papercolor-light/dark, one-light, one-dark) (#1285).</li>
+          <li>Update of contour.desktop file (#1423)</li>
+          <li>Changed configuration entry values for `font_locator` down to `native` and `mock` only (#1538).</li>
+          <li>Do not export the `TERM` environment variable on Windows OS (when using ConPTY).</li>
+          <li>Fixes line corruption after resize (#883)</li>
+          <li>Fixes resize of trivial line (#916)</li>
+          <li>Fixes copying of wrapped line</li>
+          <li>Fixes deletion of spaces on resize </li>
+          <li>Fixes forwarding of input while in normal mode (#1468)</li>
+          <li>Fixes OSC-8 link id collision (#1499)</li>
+          <li>Fixed overlap of glyphs for long codepoints (#1349)</li>
+          <li>Fixed too verbose info during ssh session login (#1447)</li>
+          <li>Fixes corruption of sixel image on high resolution (#1049)</li>
+          <li>Fixes bad wording of OS/X to macOS (#1462)</li>
+          <li>Fixes key bindings and search prompt collision (#1472)</li>
+          <li>Fixes `CSI 8 ; (COLS) ; (ROWS) t` to resize the terminal with respect to High-DPI</li>
+          <li>Fixes screen sampling with multiple monitors (#940)</li>
+          <li>Fixes bell sound in spawned window in same process (#1515)</li>
+          <li>Fixes status line crush (#1511)</li>
+          <li>Fixes application window icon on (KDE) Wayland</li>
+          <li>Fixes missing keymapping for numpad (#1325)</li>
+          <li>Improves handling of constant bell sound spawning</li>
+          <li>Fixes yW (yank WORD) not working properly in normal mode (#1448)</li>
+          <li>Fixes key mapping Shift+Tab (#1578)</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.4.3" urgency="medium" date="2024-02-04">
+      <description>
+        <ul>
+          <li>Fixes dead lock bug on mouse selection.</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.4.2" urgency="medium" date="2024-02-03">
+      <description>
+        <ul>
+          <li>Fixes Windows alt/control key modifiers (#1408).</li>
+          <li>Fixes Windows built accidentally not including builtin-SSH support (#1427).</li>
+          <li>Fixes some text run segmentation problems, e.g., not making use of some programming ligatures (#395).</li>
+          <li>Fixes mouse scroll wheel events going into the wrong direction if `Alt` modifier was pressed at the same time (#394).</li>
+          <li>Fixes `scripts/install-deps.sh` for openSuSE (Tumbleweed) to install the correct dependencies.</li>
+          <li>Fixes missing dependencies for release .deb packages (#1397).</li>
+          <li>Fixes legacy keyboard input protocol not reporting non-Alt modifier (#1411).</li>
+          <li>Fixes thread safety issue on mouse move event handling (#1444).</li>
+          <li>Digitally sign MacOS release binaries using a valid Apple ID.</li>
+          <li>Add support for authenticating to SSH servers with a private key without a password and without requesting for one - also allow password retry (#1425).</li>
+          <li>Default history limit is now 1000 lines rather than 0 lines.</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.4.1" urgency="medium" date="2023-12-31">
+      <description>
+        <ul>
+          <li>Fixes fast scrolling when using trackpad (#1360)</li>
+          <li>Fixes variable fonts loading</li>
+          <li>Fixes Command modifier for input mappings, such as Command+C or Command+V on on MacOS (#1379).</li>
+          <li>Fixes CSIu encoding of shift modifier produced characters (#1373).</li>
+          <li>Fixes screen destruction on sibling cells when overwriting wide characters, such as Emoji, Kanji, etc.</li>
+          <li>Changes VT sequence `DECSCUSR` (`CSI ? 0 SP q` and `CSI ? SP q`) to reset to user-configured cursor style (#1377).</li>
+          <li>Remove `contour-latest` terminfo file. Please use `contour` terminfo instead.</li>
+          <li>Adds `Command` as modifier to input mappings on MacOS to work along with `Meta` for convenience reasons (#1379).</li>
+          <li>Adds config option `profiles.*.margins` to allow customizing the horizontal / vertical margins (#1384).</li>
+          <li>Adds config option for colorscheme `default.bright_foreground` and `default.dimmed_foreground` to configure bright and dimmed default foreground text respectively (#1383).</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.4.0" urgency="medium" date="2023-12-19">
+      <description>
+        <ul>
+          <li>Fixes GUI terminating on idle input in some conditions.</li>
           <li>Fixes search term rendering highlighting for search terms containing whitespaces (#966).</li>
           <li>Fixes rendering in cases of glyphs with inverted orientation (#1115).</li>
+          <li>Fixes Emoji rendering being too small on macOS (#1215)</li>
+          <li>Fixes config option `show_title_bar` (#1153)</li>
+          <li>Fixes VT sequence DECSTBM and DECSLRM defaulting parameters (#1164).</li>
+          <li>Fixes VT sequence DECFRA (#1189).</li>
+          <li>Fixes VT sequence DECSCPP and DECCOLM (#1205).</li>
+          <li>Fixes VT sequence DECALN to properly reset margins when statusline is shown</li>
+          <li>Fixes VT sequence ED (CSI J) when statusline is shown.</li>
+          <li>Fixes VT sequence SM ?1003 (Any Event mouse tracking) not reporting mouse move events.</li>
+          <li>Fixes VT sequence XTWINOPS (`CSI 22 t` and `CSI 23 t`) to not assert and terminate the terminal but default to missing paramter `0` instead (#1369).</li>
+          <li>Fixes VT sequences CUU/CUD/CUF/CUB to better respect margins (#1201)</li>
+          <li>Fixes printing over 2nd cell of a wide character should delete wide character (#1268)</li>
+          <li>Fixes URI re-encoding of local files in `OSC 8` (#1199)</li>
+          <li>Fixes LCD subpixel rendering for overly wide US-ASCII glyphs (#1022)</li>
+          <li>Fixes alive process when GUI is closed</li>
+          <li>Fixes vi mode `f` action freeze on last line</li>
+          <li>Fixes AltGr handling on Windows (#150)</li>
+          <li>Fixes rarely happening bad access to GPU texture atlas (#1309)</li>
+          <li>Fixes terminal session not being terminated when the process terminated, but the PTY handle was still open (e.g. by other processes).</li>
+          <li>Fixes setting window class (`app_id`) on Wayland (#1336)</li>
+          <li>Fixes screen margins not being shared across primary and alt screen, as it should be.</li>
+          <li>Do not clear search term when entering search editor again.</li>
+          <li>Clear search term when switch to insert vi mode (#1135)</li>
+          <li>Delete dpi_scale entry in configuration (#1137)</li>
+          <li>Removes the ability to inline colorschemes within a configuration profile. Colorschemes must now always be referenced by their name.</li>
+          <li>Moves the vi-like cursor with the viewport when scrolling up/down.</li>
+          <li>Adds normal mode motion `Ctrl+e` and `Ctrl+y` to vertically move the viewport.</li>
+          <li>Adds the ability to chose a color scheme based on the operating systems's dark/light mode setting. This will change live whenever the OS's dark/light mode setting changes as well (#604).</li>
+          <li>Adds VT sequence DECSSCLS (change scroll speed) and properly handle DECSCLM (enable slow scrolling mode) (#1204)</li>
+          <li>Adds VT sequence parameter ?996 to DSR to request a report of current color scheme dark/light mode hint.</li>
+          <li>Adds VT sequence `SM ?2031` and `RM ?2031` to enable/disable unsolicited DSR for color scheme updates by the user or OS.</li>
+          <li>Adds support the extended `CSIu` keyboard protocol to better report key modifiers.</li>
+          <li>Adds extended keyboard protocol support (CSI u) to better report key modifiers.</li>
+          <li>Adds support vor horizontal mouse scrolling event reporting sequences.</li>
+          <li>Adds percentage value to Indicator Statusline to indicate scroll offset in scrollback buffer.</li>
+          <li>Adds inheritance of profiles in configuration file based on default profile (#1063).</li>
+          <li>Adds config option `profiles.*.bell` to adjust BEL behavior (#1348) and fixes (#1162) and (#1163).</li>
+          <li>Adds config option `profiles.*.frozen_dec_modes` to permanently enable/disable certain DEC modes.</li>
+          <li>Adds config option `profiles.*.option_as_meta` to allow remapping Option key to Alt on MacOS.</li>
+          <li>Adds config option `profiles.*.ssh` to allow connecting to an SSH server directly from Contour.</li>
+          <li>Adds capital `A` and `I` keys to switch from normal mode back to insert mode, too.</li>
+          <li>Adds size indicator window on resize (#1203).</li>
+          <li>Adds config entry `profile.*.size_indicator_on_resize` to control size indicator on resize and makes resize indicator small.</li>
+          <li>Adds OpenSelection action, and honor case in the configuration bindings</li>
+          <li>Adds open resource (URL, local file) feature also to vi mode.</li>
+          <li>Adds configurable window alerts on terminal bells.</li>
         </ul>
       </description>
     </release>
@@ -219,7 +431,7 @@
           <li>Fixes mouse reporting in primary screen when viewport has been scrolled into the scrollback area.</li>
           <li>Fixes VT sequence `DECSTR` (soft reset) to not move the cursor to home position.</li>
           <li>Fixes cursor movements for the vi-like cursor (normal mode).</li>
-          <li>Fixes Alt+Backspace on OS/X.</li>
+          <li>Fixes Alt+Backspace on macOS.</li>
           <li>Fixes default config entry `profiles.*.draw_bold_text_with_bright_colors` (it was renamed from `profiles.*.bold_is_bright`). Please rename this in your existing configuration if not done yet.</li>
           <li>Fixes sometimes rendering two cursors when statusline is shown.</li>
           <li>Fixes normal mode's page top (S-H)/ page bottom (S-L) cursor movements to respect scroll offset.</li>
@@ -391,7 +603,7 @@
       <description>
         <ul>
           <li>Adds Vi-like input modes for improved selection and copy'n'paste experience.</li>
-          <li>Adds contour executable to search path for spawned shell process on OS/X and Windows.</li>
+          <li>Adds contour executable to search path for spawned shell process on macOS and Windows.</li>
           <li>Adds customizability to dim colors (#664).</li>
           <li>Adds the profile configuration option: `draw_bold_text_with_bright_colors`.</li>
           <li>Fixes `CSI K` accidentally removing line flags, e.g. line marks (#658).</li>
@@ -501,7 +713,7 @@
       <description>
         <ul>
           <li>Reverts change from 0.2.0: "Changes behaviour when receiving `U+FE0E` (VS15) to not enforce the width of 1 but leave it as is (usually 2). This seems to match what the web browser is doing, too."</li>
-          <li>Adds support for loading terminal color schemes from an exernal file, such as `~/.config/contour/colorschemes/onedark.yml` for the scheme `onedark` (file file format is simply a sub-tree of how colors can be specified inline).</li>
+          <li>Adds support for loading terminal color schemes from an external file, such as `~/.config/contour/colorschemes/onedark.yml` for the scheme `onedark` (file file format is simply a sub-tree of how colors can be specified inline).</li>
           <li>Adds some more tmux-extension entries to the terminfo database that are supported by contour (`Ss`, `Se`, `Cs`, `Smol`, `Smulx`, `Setulc`).</li>
           <li>Adds `Sync` capability entry to terminfo file.</li>
           <li>Adds many more pixel-perfect graphical characters: `23A1`..`23A6`, `2580`..`2590`, `2594`..`259F`, `1FB00`..`1FB3B`, `1FB3C`..`1FBAF`, `1FBF0`..`1FBF9`.</li>
@@ -517,7 +729,7 @@
           <li>Changes tcap-query feature from experimental to always enabled (not configurable anymore).</li>
           <li>Automatically detect if `contour` or `contour-latest` terminfo entries are present use that as default.</li>
           <li>Fixes VT sequences that cause a cursor restore to sometimes crash.</li>
-          <li>Fixes terminfo installation path on OS/X and tries to auto-set `TERMINFO_DIRS` to it on startup (#443).</li>
+          <li>Fixes terminfo installation path on macOS and tries to auto-set `TERMINFO_DIRS` to it on startup (#443).</li>
           <li>Fixes terminfo entry `pairs`.</li>
           <li>Fixes SGR 24 to remove any kind of underline (#451).</li>
           <li>Fixes font fallback for `open_shaper` where in rare cases the text was not rendered at all.</li>
@@ -527,7 +739,7 @@
           <li>Fixes SEGV with overflowing (Sixel) images (#409).</li>
           <li>Fixes XTSMGRAPHICS for invalid SetValue actions and setting Sixel image size limits (#422).</li>
           <li>Fixes internal pixel width/height tracking in VT screen, which did affect sizes of rendered Sixel images (#408).</li>
-          <li>Fixes configuring a custom shell on OS/X (#425).</li>
+          <li>Fixes configuring a custom shell on macOS (#425).</li>
           <li>Fixes off-by-one bug in builtin box drawing (#424).</li>
           <li>Fixes assertion in text renderer with regards to colored glyphs.</li>
           <li>Fixes Sixel background select to support transparency (#450).</li>
@@ -566,7 +778,7 @@
           <li>Adds support for bypassing the mouse protocol via Shift-click (configurable via `bypass_mouse_protocol_modifier`)</li>
           <li>Adds improved debug logging. via CLI flag `-d` (`--enable-debug`) to accept a comma seperated list of tags to enable logging for. Appending a `*` at the end of a debug tag will enable all debug tags that match prefix its prefix.  The list of available debuglog tags can be found via CLI flag `-D` (`--list-debug-tags`).</li>
           <li>Adds support for different font render modes: `lcd`, `light`, `gray`, `monochrome` in `profiles.NAME.font.render_mode` (default: `lcd`).</li>
-          <li>Adds support for different text render engines: `OpenShaper`, `DirectWrite` and `CoreText` for upcoming native platform support on Windows (and later OS/X).</li>
+          <li>Adds support for different text render engines: `OpenShaper`, `DirectWrite` and `CoreText` for upcoming native platform support on Windows (and later macOS).</li>
           <li>Adds support for different font location engines: `fontconfig` (others will follow).</li>
           <li>Adds experimental text reflow.</li>
           <li>Adds OpenFileManager action to configuration.</li>
@@ -600,7 +812,7 @@
           <li>Adds new CLI command: `contour set profile to NAME` to change the profile on the fly.</li>
           <li>Adds new CLI command: `contour generate terminfo output OUTPUT_FILE` to create a Contour terminfo file.</li>
           <li>Adds new CLI command: `contour generate config output OUTPUT_FILE` to create a new default config.</li>
-          <li>Adds new CLI command: `contour generate integration shell SHELL output OUTPUT_FILE` to create the shell integreation file for the given shell (only zsh supported for now). Also adds a pre-generated shell integration file for Linux (and OS/X) to `/usr/share/contour/shell-integration.zsh`.</li>
+          <li>Adds new CLI command: `contour generate integration shell SHELL output OUTPUT_FILE` to create the shell integreation file for the given shell (only zsh supported for now). Also adds a pre-generated shell integration file for Linux (and macOS) to `/usr/share/contour/shell-integration.zsh`.</li>
           <li>Unicode data updated to version 14.0 beta.</li>
           <li>Adds support for building with Qt 6 (disabled by default).</li>
           <li>Adds support for building with mimalloc (experimental, disabled by default).</li>
@@ -625,7 +837,7 @@
     <release version="0.1.0" date="2020-12-24">
       <description>
         <ul>
-          <li>Available on all 3 major platforms, Linux, OS/X, Windows.</li>
+          <li>Available on all 3 major platforms, Linux, macOS, Windows.</li>
           <li>Emoji support (-: 🌈 💝 😛 👪 :-)</li>
           <li>Font ligatures support (such as in Fira Code).</li>
           <li>Bold and italic fonts</li>
@@ -646,4 +858,3 @@
   </releases>
 
 </component>
-

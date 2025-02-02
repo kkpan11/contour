@@ -1,24 +1,12 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <crispy/logstore.h>
 
-#include <fmt/format.h>
-
 #include <exception>
+#include <format>
 #include <functional>
+#include <iostream>
 #include <string_view>
 
 namespace crispy
@@ -76,9 +64,9 @@ namespace detail
             if (fail_handler())
                 fail_handler()(text, message, file, line);
             else
-                fmt::print("[{}:{}] {} {}\n", file, line, message, text);
+                std::cerr << std::format("[{}:{}] {} {}\n", file, line, message, text);
         }
-        catch (...)
+        catch (...) // NOLINT(bugprone-empty-catch)
         {
         }
         std::abort();
@@ -97,22 +85,22 @@ inline void set_fail_handler(fail_handler_t handler)
 /// This method prints an error message and then terminates the program.
 [[noreturn]] inline void todo(std::string_view message = {})
 {
-    fmt::print("TODO: We have reached some code that is missing an implementation.\n");
+    std::cerr << std::format("TODO: We have reached some code that is missing an implementation.\n");
     if (!message.empty())
-        fmt::print("{}\n", message);
+        std::cerr << std::format("{}\n", message);
     std::abort();
 }
 
 [[noreturn]] inline void fatal(std::string_view message,
                                logstore::source_location location = logstore::source_location::current())
 {
-    auto static FatalLog =
-        logstore::Category("fatal", "Fatal error Logger", logstore::Category::State::Enabled);
+    auto static fatalLog =
+        logstore::category("fatal", "Fatal error Logger", logstore::category::state::Enabled);
 
     if (!message.empty())
-        FatalLog(location)("Fatal error. {}", message);
+        fatalLog(location)("Fatal error. {}", message);
     else
-        FatalLog(location)("Fatal error.");
+        fatalLog(location)("Fatal error.");
     std::abort();
 }
 

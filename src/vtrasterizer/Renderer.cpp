@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtrasterizer/Renderer.h>
 #include <vtrasterizer/TextRenderer.h>
 #include <vtrasterizer/utils.h>
@@ -18,12 +6,13 @@
 #include <text_shaper/font_locator.h>
 #include <text_shaper/open_shaper.h>
 
+#include <crispy/StrongLRUHashtable.h>
+
 #if defined(_WIN32)
     #include <text_shaper/directwrite_shaper.h>
 #endif
 
 #include <array>
-#include <functional>
 #include <memory>
 
 using std::array;
@@ -34,14 +23,13 @@ using std::make_unique;
 using std::move;
 using std::nullopt;
 using std::optional;
-using std::reference_wrapper;
 using std::scoped_lock;
 using std::tuple;
 using std::unique_ptr;
 using std::vector;
 using std::chrono::steady_clock;
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 namespace
@@ -51,22 +39,24 @@ namespace
     {
         auto const m = textShaper.metrics(font);
 
-        gm.cellSize.width = Width::cast_from(m.advance);
-        gm.cellSize.height = Height::cast_from(m.line_height);
-        gm.baseline = m.line_height - m.ascender;
-        gm.underline.position = gm.baseline + m.underline_position;
-        gm.underline.thickness = m.underline_thickness;
+        gm.cellSize.width = vtbackend::Width::cast_from(m.advance);
+        gm.cellSize.height = vtbackend::Height::cast_from(m.lineHeight);
+        gm.baseline = m.lineHeight - m.ascender;
+        gm.underline.position = gm.baseline + m.underlinePosition;
+        gm.underline.thickness = m.underlineThickness;
 
-        RendererLog()("Loading grid metrics {}", gm);
+        rendererLog()("Loading grid metrics {}", gm);
     }
 
-    GridMetrics loadGridMetrics(text::font_key font, PageSize pageSize, text::shaper& textShaper)
+    GridMetrics loadGridMetrics(text::font_key font, vtbackend::PageSize pageSize, text::shaper& textShaper)
     {
         auto gm = GridMetrics {};
 
         gm.pageSize = pageSize;
-        gm.cellMargin = { 0, 0, 0, 0 }; // TODO (pass as args, and make use of them)
-        gm.pageMargin = { 0, 0, 0 };    // TODO (fill early)
+        gm.cellMargin = {
+            .top = 0, .left = 0, .bottom = 0, .right = 0
+        }; // TODO (pass as args, and make use of them)
+        gm.pageMargin = { .left = 0, .top = 0, .bottom = 0 }; // TODO (fill early)
 
         loadGridMetricsFromFont(font, gm, textShaper);
 
@@ -93,43 +83,45 @@ namespace
         {
             case TextShapingEngine::DWrite:
 #if defined(_WIN32)
-                RendererLog()("Using DirectWrite text shaping engine.");
+                rendererLog()("Using DirectWrite text shaping engine.");
                 // TODO: do we want to use custom font locator here?
                 return make_unique<text::directwrite_shaper>(dpi, locator);
 #else
-                RendererLog()("DirectWrite not available on this platform.");
+                rendererLog()("DirectWrite not available on this platform.");
                 break;
 #endif
 
             case TextShapingEngine::CoreText:
 #if defined(__APPLE__)
-                RendererLog()("CoreText not yet implemented.");
+                rendererLog()("CoreText not yet implemented.");
                 break;
 #else
-                RendererLog()("CoreText not available on this platform.");
+                rendererLog()("CoreText not available on this platform.");
                 break;
 #endif
 
             case TextShapingEngine::OpenShaper: break;
         }
 
-        RendererLog()("Using OpenShaper text shaping engine.");
+        rendererLog()("Using OpenShaper text shaping engine.");
         return make_unique<text::open_shaper>(dpi, locator);
     }
 
 } // namespace
 
-Renderer::Renderer(PageSize pageSize,
+Renderer::Renderer(vtbackend::PageSize pageSize,
                    FontDescriptions fontDescriptions,
-                   terminal::ColorPalette const& colorPalette,
-                   terminal::Opacity backgroundOpacity,
-                   crispy::StrongHashtableSize atlasHashtableSlotCount,
-                   crispy::LRUCapacity atlasTileCount,
+                   vtbackend::ColorPalette const& colorPalette,
+                   crispy::strong_hashtable_size atlasHashtableSlotCount,
+                   crispy::lru_capacity atlasTileCount,
                    bool atlasDirectMapping,
                    Decorator hyperlinkNormal,
                    Decorator hyperlinkHover):
     _atlasHashtableSlotCount { crispy::nextPowerOfTwo(atlasHashtableSlotCount.value) },
-    _atlasTileCount { std::max(atlasTileCount.value, static_cast<uint32_t>(pageSize.area())) },
+    _atlasTileCount {
+        std::max(atlasTileCount.value, static_cast<uint32_t>(pageSize.area() * 3))
+    }, // TODO instead of pagesize use size for fullscreen window
+       // 3 required for huge sixel images rendering due to initial page size smaller than
     _atlasDirectMapping { atlasDirectMapping },
     //.
     _fontDescriptions { std::move(fontDescriptions) },
@@ -140,23 +132,22 @@ Renderer::Renderer(PageSize pageSize,
     _gridMetrics { loadGridMetrics(_fonts.regular, pageSize, *_textShaper) },
     //.
     _colorPalette { colorPalette },
-    _backgroundOpacity { backgroundOpacity },
     _backgroundRenderer { _gridMetrics, colorPalette.defaultBackground },
     _imageRenderer { _gridMetrics, cellSize() },
     _textRenderer { _gridMetrics, *_textShaper, _fontDescriptions, _fonts, _imageRenderer },
     _decorationRenderer { _gridMetrics, hyperlinkNormal, hyperlinkHover },
-    _cursorRenderer { _gridMetrics, CursorShape::Block }
+    _cursorRenderer { _gridMetrics, vtbackend::CursorShape::Block }
 {
     _textRenderer.updateFontMetrics();
     _imageRenderer.setCellSize(cellSize());
 
     // clang-format off
     if (_atlasTileCount.value > atlasTileCount.value)
-        RendererLog()("Increasing atlas tile count configuration to {} to satisfy worst-case rendering scenario.",
+        rendererLog()("Increasing atlas tile count configuration to {} to satisfy worst-case rendering scenario.",
                               _atlasTileCount.value);
 
     if (_atlasHashtableSlotCount.value > atlasHashtableSlotCount.value)
-        RendererLog()("Increasing atlas hashtable slot count configuration to the next power of two: {}.",
+        rendererLog()("Increasing atlas hashtable slot count configuration to the next power of two: {}.",
                               _atlasHashtableSlotCount.value);
     // clang-format on
 }
@@ -166,7 +157,8 @@ void Renderer::setRenderTarget(RenderTarget& renderTarget)
     _renderTarget = &renderTarget;
 
     // Reset DirectMappingAllocator (also skipping zero-tile).
-    _directMappingAllocator = atlas::DirectMappingAllocator<RenderTileAttributes> { 1 };
+    _directMappingAllocator =
+        atlas::DirectMappingAllocator<RenderTileAttributes> { .currentlyAllocatedCount = 1 };
 
     // Explicitly enable direct mapping for everything BUT the text renderer.
     // Only the text renderer's direct mapping is configurable (for simplicity for now).
@@ -178,50 +170,48 @@ void Renderer::setRenderTarget(RenderTarget& renderTarget)
     _textRenderer.setRenderTarget(renderTarget, _directMappingAllocator);
 
     configureTextureAtlas();
-
-    if (_colorPalette.backgroundImage)
-        renderTarget.setBackgroundImage(_colorPalette.backgroundImage);
 }
 
 void Renderer::configureTextureAtlas()
 {
     Require(_renderTarget);
 
+    auto const atlasCellSize = _gridMetrics.cellSize;
     auto atlasProperties =
-        atlas::AtlasProperties { atlas::Format::RGBA,
-                                 _gridMetrics.cellSize, // Cell size is used as GPU tile size.
-                                 _atlasHashtableSlotCount,
-                                 _atlasTileCount,
-                                 _directMappingAllocator.currentlyAllocatedCount };
+        atlas::AtlasProperties { .format = atlas::Format::RGBA,
+                                 .tileSize = atlasCellSize,
+                                 .hashCount = _atlasHashtableSlotCount,
+                                 .tileCount = _atlasTileCount,
+                                 .directMappingCount = _directMappingAllocator.currentlyAllocatedCount };
 
     Require(atlasProperties.tileCount.value > 0);
 
     _textureAtlas = make_unique<Renderable::TextureAtlas>(_renderTarget->textureScheduler(), atlasProperties);
 
     // clang-format off
-    RendererLog()("Configuring texture atlas.\n", atlasProperties);
-    RendererLog()("- Atlas properties     : {}\n", atlasProperties);
-    RendererLog()("- Atlas texture size   : {} pixels\n", _textureAtlas->atlasSize());
-    RendererLog()("- Atlas hashtable      : {} slots\n", _atlasHashtableSlotCount.value);
-    RendererLog()("- Atlas tile count     : {} = {}x * {}y\n", _textureAtlas->capacity(), _textureAtlas->tilesInX(), _textureAtlas->tilesInY());
-    RendererLog()("- Atlas direct mapping : {} (for text rendering)", _atlasDirectMapping ? "enabled" : "disabled");
+    rendererLog()("Configuring texture atlas.\n", atlasProperties);
+    rendererLog()("- Atlas properties     : {}\n", atlasProperties);
+    rendererLog()("- Atlas texture size   : {} pixels\n", _textureAtlas->atlasSize());
+    rendererLog()("- Atlas hashtable      : {} slots\n", _atlasHashtableSlotCount.value);
+    rendererLog()("- Atlas tile count     : {} = {}x * {}y\n", _textureAtlas->capacity(), _textureAtlas->tilesInX(), _textureAtlas->tilesInY());
+    rendererLog()("- Atlas direct mapping : {} (for text rendering)", _atlasDirectMapping ? "enabled" : "disabled");
     // clang-format on
 
-    for (reference_wrapper<Renderable>& renderable: renderables())
-        renderable.get().setTextureAtlas(*_textureAtlas);
+    for (gsl::not_null<Renderable*> const& renderable: renderables())
+        renderable->setTextureAtlas(*_textureAtlas);
 }
 
-void Renderer::discardImage(Image const& image)
+void Renderer::discardImage(vtbackend::Image const& image)
 {
     // Defer rendering into the renderer thread & render stage, as this call might have
     // been coming out of bounds from another thread (e.g. the terminal's screen update thread)
-    auto _l = scoped_lock { _imageDiscardLock };
+    auto l = scoped_lock { _imageDiscardLock };
     _discardImageQueue.emplace_back(image.id());
 }
 
 void Renderer::executeImageDiscards()
 {
-    auto _l = scoped_lock { _imageDiscardLock };
+    auto l = scoped_lock { _imageDiscardLock };
 
     for (auto const imageId: _discardImageQueue)
         _imageRenderer.discardImage(imageId);
@@ -239,7 +229,7 @@ void Renderer::clearCache()
     // TODO(?): below functions are actually doing the same again and again and again. delete them (and their
     // functions for that) either that, or only the render target is allowed to clear the actual atlas caches.
     for (auto& renderable: renderables())
-        renderable.get().clearCache();
+        renderable->clearCache();
 }
 
 void Renderer::setFonts(FontDescriptions fontDescriptions)
@@ -278,7 +268,7 @@ bool Renderer::setFontSize(text::font_size fontSize)
 
 void Renderer::updateFontMetrics()
 {
-    RendererLog()("Updating grid metrics: {}", _gridMetrics);
+    rendererLog()("Updating grid metrics: {}", _gridMetrics);
 
     _gridMetrics = loadGridMetrics(_fonts.regular, _gridMetrics.pageSize, *_textShaper);
 
@@ -291,7 +281,7 @@ void Renderer::updateFontMetrics()
     clearCache();
 }
 
-void Renderer::render(Terminal& terminal, bool pressure)
+void Renderer::render(vtbackend::Terminal& terminal, bool pressure)
 {
     auto const statusLineHeight = terminal.statusLineHeight();
     _gridMetrics.pageSize = terminal.pageSize() + statusLineHeight;
@@ -305,12 +295,12 @@ void Renderer::render(Terminal& terminal, bool pressure)
     terminal.refreshRenderBuffer();
 #endif // }}}
 
-    optional<terminal::RenderCursor> cursorOpt;
+    optional<vtbackend::RenderCursor> cursorOpt;
     _imageRenderer.beginFrame();
     _textRenderer.beginFrame();
     _textRenderer.setPressure(pressure && terminal.isPrimaryScreen());
     {
-        RenderBufferRef const renderBuffer = terminal.renderBuffer();
+        vtbackend::RenderBufferRef const renderBuffer = terminal.renderBuffer();
         cursorOpt = renderBuffer.get().cursor;
         renderCells(renderBuffer.get().cells);
         renderLines(renderBuffer.get().lines);
@@ -318,18 +308,18 @@ void Renderer::render(Terminal& terminal, bool pressure)
     _textRenderer.endFrame();
     _imageRenderer.endFrame();
 
-    if (cursorOpt && cursorOpt.value().shape != CursorShape::Block)
+    if (cursorOpt && cursorOpt.value().shape != vtbackend::CursorShape::Block)
     {
         // Note. Block cursor is implicitly rendered via standard grid cell rendering.
         auto const cursor = *cursorOpt;
         _cursorRenderer.setShape(cursor.shape);
         auto const cursorColor = [&]() {
-            if (holds_alternative<CellForegroundColor>(_colorPalette.cursor.color))
+            if (holds_alternative<vtbackend::CellForegroundColor>(_colorPalette.cursor.color))
                 return _colorPalette.defaultForeground;
-            else if (holds_alternative<CellBackgroundColor>(_colorPalette.cursor.color))
+            else if (holds_alternative<vtbackend::CellBackgroundColor>(_colorPalette.cursor.color))
                 return _colorPalette.defaultBackground;
             else
-                return get<RGBColor>(_colorPalette.cursor.color);
+                return get<vtbackend::RGBColor>(_colorPalette.cursor.color);
         }();
         _cursorRenderer.render(_gridMetrics.map(cursor.position), cursor.width, cursorColor);
     }
@@ -337,9 +327,9 @@ void Renderer::render(Terminal& terminal, bool pressure)
     _renderTarget->execute(terminal.currentTime());
 }
 
-void Renderer::renderCells(vector<RenderCell> const& renderableCells)
+void Renderer::renderCells(vector<vtbackend::RenderCell> const& renderableCells)
 {
-    for (RenderCell const& cell: renderableCells)
+    for (vtbackend::RenderCell const& cell: renderableCells)
     {
         _backgroundRenderer.renderCell(cell);
         _decorationRenderer.renderCell(cell);
@@ -349,9 +339,9 @@ void Renderer::renderCells(vector<RenderCell> const& renderableCells)
     }
 }
 
-void Renderer::renderLines(vector<RenderLine> const& renderableLines)
+void Renderer::renderLines(vector<vtbackend::RenderLine> const& renderableLines)
 {
-    for (RenderLine const& line: renderableLines)
+    for (vtbackend::RenderLine const& line: renderableLines)
     {
         _backgroundRenderer.renderLine(line);
         _decorationRenderer.renderLine(line);
@@ -363,7 +353,7 @@ void Renderer::inspect(std::ostream& textOutput) const
 {
     _textureAtlas->inspect(textOutput);
     for (auto const& renderable: renderables())
-        renderable.get().inspect(textOutput);
+        renderable->inspect(textOutput);
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

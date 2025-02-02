@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <contour/ContourGuiApp.h>
 
 #if defined(_WIN32)
@@ -80,6 +68,55 @@ void tryAttachConsole()
     clearAll(cin, cout, cerr, clog, wcin, wcout, wcerr, wclog);
 }
 #endif
+
+void qtCustomMessageOutput(QtMsgType type, const QMessageLogContext& context, const QString& msg)
+{
+    QByteArray const localMsg = msg.toLocal8Bit();
+    switch (type)
+    {
+        case QtDebugMsg:
+            fprintf(stderr,
+                    "Debug[%s]: %s (%s:%u, %s)\n",
+                    context.category,
+                    localMsg.constData(),
+                    context.file,
+                    context.line,
+                    context.function);
+            break;
+        case QtInfoMsg:
+            fprintf(stderr,
+                    "Info: %s (%s:%u, %s)\n",
+                    localMsg.constData(),
+                    context.file,
+                    context.line,
+                    context.function);
+            break;
+        case QtWarningMsg:
+            fprintf(stderr,
+                    "Warning: %s (%s:%u, %s)\n",
+                    localMsg.constData(),
+                    context.file,
+                    context.line,
+                    context.function);
+            break;
+        case QtCriticalMsg:
+            fprintf(stderr,
+                    "Critical: %s (%s:%u, %s)\n",
+                    localMsg.constData(),
+                    context.file,
+                    context.line,
+                    context.function);
+            break;
+        case QtFatalMsg:
+            fprintf(stderr,
+                    "Fatal: %s (%s:%u, %s)\n",
+                    localMsg.constData(),
+                    context.file,
+                    context.line,
+                    context.function);
+            abort();
+    }
+}
 } // namespace
 
 int main(int argc, char const* argv[])
@@ -87,6 +124,8 @@ int main(int argc, char const* argv[])
 #if defined(_WIN32)
     tryAttachConsole();
 #endif
+
+    qInstallMessageHandler(qtCustomMessageOutput);
 
 #if defined(CONTOUR_FRONTEND_GUI)
     contour::ContourGuiApp app;

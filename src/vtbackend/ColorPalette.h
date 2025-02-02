@@ -1,48 +1,35 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Color.h>
 #include <vtbackend/Image.h>
 
 #include <crispy/StrongHash.h>
-#include <crispy/stdfs.h>
 
-#include <fmt/format.h>
-
-#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdint>
-#include <initializer_list>
-#include <optional>
-#include <ostream>
-#include <string>
-#include <utility>
+#include <filesystem>
+#include <format>
 #include <variant>
 
-namespace terminal
+namespace vtbackend
 {
+
+enum class ColorPreference : uint8_t
+{
+    Dark,
+    Light,
+};
 
 struct ImageData
 {
-    terminal::ImageFormat format;
+    vtbackend::ImageFormat format;
     int rowAlignment = 1;
     ImageSize size;
     std::vector<uint8_t> pixels;
 
-    crispy::StrongHash hash;
+    crispy::strong_hash hash;
 
     void updateHash() noexcept;
 };
@@ -51,13 +38,13 @@ using ImageDataPtr = std::shared_ptr<ImageData const>;
 
 struct BackgroundImage
 {
-    using Location = std::variant<FileSystem::path, ImageDataPtr>;
+    using Location = std::variant<std::filesystem::path, ImageDataPtr>;
 
     Location location;
-    crispy::StrongHash hash;
+    crispy::strong_hash hash {};
 
     // image configuration
-    float opacity = 1.0; // normalized value
+    float opacity = 0.5; // normalized value
     bool blur = false;
 };
 
@@ -105,7 +92,9 @@ struct ColorPalette
     }
 
     RGBColor defaultForeground = 0xD0D0D0_rgb;
-    RGBColor defaultBackground = 0x000000_rgb;
+    RGBColor defaultBackground = 0x1a1716_rgb;
+    RGBColor defaultForegroundBright = 0xFFFFFF_rgb;
+    RGBColor defaultForegroundDimmed = 0x808080_rgb;
 
     CursorColor cursor;
 
@@ -114,39 +103,43 @@ struct ColorPalette
 
     struct
     {
-        RGBColor normal = 0x0070F0_rgb;
+        RGBColor normal = 0xF0F000_rgb;
         RGBColor hover = 0xFF0000_rgb;
     } hyperlinkDecoration;
 
     RGBColorPair inputMethodEditor = { 0xFFFFFF_rgb, 0xFF0000_rgb };
 
-    std::shared_ptr<BackgroundImage const> backgroundImage;
+    std::shared_ptr<BackgroundImage> backgroundImage;
 
     // clang-format off
     CellRGBColorAndAlphaPair yankHighlight { CellForegroundColor {}, 1.0f, 0xffA500_rgb, 0.5f };
 
     CellRGBColorAndAlphaPair searchHighlight { CellBackgroundColor {}, 1.0f, CellForegroundColor {}, 1.0f };
-    CellRGBColorAndAlphaPair searchHighlightFocused { CellForegroundColor {}, 1.0f, RGBColor{0xFF, 0x30, 0x30}, 0.5f };
+    CellRGBColorAndAlphaPair searchHighlightFocused {  CellBackgroundColor {}, 1.0f,CellForegroundColor {}, 1.0f };
 
-    CellRGBColorAndAlphaPair wordHighlight { CellForegroundColor {}, 1.0f, RGBColor{0x30, 0x90, 0x90}, 0.4f };
+    CellRGBColorAndAlphaPair wordHighlight { CellForegroundColor {}, 1.0f, 0x909090_rgb, 0.5f };
     CellRGBColorAndAlphaPair wordHighlightCurrent { CellForegroundColor {}, 1.0f, RGBColor{0x90, 0x90, 0x90}, 0.6f };
 
-    CellRGBColorAndAlphaPair selection { CellBackgroundColor {}, 1.0f, CellForegroundColor {}, 1.0f };
+    CellRGBColorAndAlphaPair selection { CellForegroundColor {}, 1.0f, 0x4040f0_rgb , 0.5f };
 
-    CellRGBColorAndAlphaPair normalModeCursorline = { 0xFFFFFF_rgb, 0.2f, 0x808080_rgb, 0.8f };
+    CellRGBColorAndAlphaPair normalModeCursorline = { 0xFFFFFF_rgb, 0.2f, 0x808080_rgb, 0.4f };
     // clang-format on
 
-    RGBColorPair indicatorStatusLine = { 0x000000_rgb, 0x808080_rgb };
-    RGBColorPair indicatorStatusLineInactive = { 0x000000_rgb, 0x808080_rgb };
+    RGBColorPair indicatorStatusLineInactive = { 0xFFFFFF_rgb, 0x0270c0_rgb };
+    RGBColorPair indicatorStatusLineInsertMode = { 0xFFFFFF_rgb, 0x0270c0_rgb };
+    RGBColorPair indicatorStatusLineNormalMode = { 0xFFFFFF_rgb, 0x0270c0_rgb };
+    RGBColorPair indicatorStatusLineVisualMode = { 0xFFFFFF_rgb, 0x0270c0_rgb };
 };
 
-enum class ColorTarget
+bool defaultColorPalettes(std::string const& colorPaletteName, ColorPalette& palette) noexcept;
+
+enum class ColorTarget : uint8_t
 {
     Foreground,
     Background,
 };
 
-enum class ColorMode
+enum class ColorMode : uint8_t
 {
     Dimmed,
     Normal,
@@ -155,49 +148,52 @@ enum class ColorMode
 
 RGBColor apply(ColorPalette const& colorPalette, Color color, ColorTarget target, ColorMode mode) noexcept;
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
+// {{{ fmtlib custom formatter support
 template <>
-struct formatter<terminal::ColorMode>
+struct std::formatter<vtbackend::ColorPreference>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ColorPreference value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::ColorMode value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::ColorMode::Normal: return fmt::format_to(ctx.out(), "Normal");
-            case terminal::ColorMode::Dimmed: return fmt::format_to(ctx.out(), "Dimmed");
-            case terminal::ColorMode::Bright: return fmt::format_to(ctx.out(), "Bright");
+            case vtbackend::ColorPreference::Dark: name = "Dark"; break;
+            case vtbackend::ColorPreference::Light: name = "Light"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", (int) value);
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ColorTarget>
+struct std::formatter<vtbackend::ColorMode>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ColorMode value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::ColorTarget value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::ColorTarget::Foreground: return fmt::format_to(ctx.out(), "Foreground");
-            case terminal::ColorTarget::Background: return fmt::format_to(ctx.out(), "Background");
+            case vtbackend::ColorMode::Normal: name = "Normal"; break;
+            case vtbackend::ColorMode::Dimmed: name = "Dimmed"; break;
+            case vtbackend::ColorMode::Bright: name = "Bright"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", (int) value);
+        return formatter<string_view>::format(name, ctx);
     }
 };
-} // namespace fmt
+
+template <>
+struct std::formatter<vtbackend::ColorTarget>: std::formatter<std::string_view>
+{
+    auto format(vtbackend::ColorTarget value, auto& ctx) const
+    {
+        string_view name;
+        switch (value)
+        {
+            case vtbackend::ColorTarget::Foreground: name = "Foreground"; break;
+            case vtbackend::ColorTarget::Background: name = "Background"; break;
+        }
+        return formatter<string_view>::format(name, ctx);
+    }
+};
 // }}}

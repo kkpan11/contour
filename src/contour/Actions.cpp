@@ -1,24 +1,9 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-#include "Actions.h"
+// SPDX-License-Identifier: Apache-2.0
+#include <contour/Actions.h>
 
 #include <crispy/utils.h>
 
-#include <algorithm>
 #include <array>
-#include <cctype>
-#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -32,13 +17,13 @@ namespace contour::actions
 namespace
 {
     template <typename T>
-    inline auto mapAction(string_view _name)
+    inline constexpr auto mapAction(string_view name) noexcept
     {
-        return pair { _name, Action { T {} } };
+        return pair { name, Action { T {} } };
     }
 } // namespace
 
-optional<Action> fromString(string const& _name)
+optional<Action> fromString(string const& name)
 {
     // NB: If we change that variable declaration to `static`,
     // then MSVC will not finish compiling. Yes. That's not a joke.
@@ -49,6 +34,7 @@ optional<Action> fromString(string const& _name)
         mapAction<actions::CopyPreviousMarkRange>("CopyPreviousMarkRange"),
         mapAction<actions::CopySelection>("CopySelection"),
         mapAction<actions::CreateDebugDump>("CreateDebugDump"),
+        mapAction<actions::CreateSelection>("CreateSelection"),
         mapAction<actions::DecreaseFontSize>("DecreaseFontSize"),
         mapAction<actions::DecreaseOpacity>("DecreaseOpacity"),
         mapAction<actions::FocusNextSearchMatch>("FocusNextSearchMatch"),
@@ -60,6 +46,7 @@ optional<Action> fromString(string const& _name)
         mapAction<actions::NoSearchHighlight>("NoSearchHighlight"),
         mapAction<actions::OpenConfiguration>("OpenConfiguration"),
         mapAction<actions::OpenFileManager>("OpenFileManager"),
+        mapAction<actions::OpenSelection>("OpenSelection"),
         mapAction<actions::PasteClipboard>("PasteClipboard"),
         mapAction<actions::PasteSelection>("PasteSelection"),
         mapAction<actions::Quit>("Quit"),
@@ -67,6 +54,8 @@ optional<Action> fromString(string const& _name)
         mapAction<actions::ResetConfig>("ResetConfig"),
         mapAction<actions::ResetFontSize>("ResetFontSize"),
         mapAction<actions::ScreenshotVT>("ScreenshotVT"),
+        mapAction<actions::SaveScreenshot>("SaveScreenshot"),
+        mapAction<actions::CopyScreenshot>("CopyScreenshot"),
         mapAction<actions::ScrollDown>("ScrollDown"),
         mapAction<actions::ScrollMarkDown>("ScrollMarkDown"),
         mapAction<actions::ScrollMarkUp>("ScrollMarkUp"),
@@ -90,11 +79,20 @@ optional<Action> fromString(string const& _name)
         mapAction<actions::TraceStep>("TraceStep"),
         mapAction<actions::ViNormalMode>("ViNormalMode"),
         mapAction<actions::WriteScreen>("WriteScreen"),
+        mapAction<actions::CreateNewTab>("CreateNewTab"),
+        mapAction<actions::CloseTab>("CloseTab"),
+        mapAction<actions::MoveTabTo>("MoveTabTo"),
+        mapAction<actions::MoveTabToLeft>("MoveTabToLeft"),
+        mapAction<actions::MoveTabToRight>("MoveTabToRight"),
+        mapAction<actions::SwitchToTab>("SwitchToTab"),
+        mapAction<actions::SwitchToPreviousTab>("SwitchToPreviousTab"),
+        mapAction<actions::SwitchToTabLeft>("SwitchToTabLeft"),
+        mapAction<actions::SwitchToTabRight>("SwitchToTabRight"),
     };
 
-    auto const name = toLower(_name);
+    auto const lowerCaseName = toLower(name);
     for (auto const& mapping: mappings)
-        if (name == toLower(mapping.first))
+        if (lowerCaseName == toLower(mapping.first))
             return { mapping.second };
 
     return nullopt;

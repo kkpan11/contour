@@ -1,34 +1,20 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Functions.h>
 
-#include <crispy/boxed.h>
-
+#include <gsl/pointers>
 #include <gsl/span>
 
-#include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <iterator>
-#include <memory>
 #include <string>
 #include <string_view>
-#include <type_traits>
-#include <vector>
 
-namespace terminal
+#include <boxed-cpp/boxed.hpp>
+
+namespace vtbackend
 {
 
 class SequenceParameterBuilder;
@@ -78,7 +64,7 @@ class SequenceParameters
 
     [[nodiscard]] std::string subParameterBitString() const
     {
-        return fmt::format("{:016b}: ", _subParameterTest);
+        return std::format("{:016b}: ", _subParameterTest);
     }
 
     [[nodiscard]] constexpr gsl::span<std::uint16_t> range() noexcept
@@ -130,33 +116,33 @@ class SequenceParameterBuilder
     using Storage = SequenceParameters::Storage;
 
     explicit SequenceParameterBuilder(SequenceParameters& p):
-        _parameters { p }, _currentParameter { p._values.begin() }
+        _parameters { &p }, _currentParameter { p._values.begin() }
     {
     }
 
     void reset()
     {
-        _parameters.clear();
-        _currentParameter = _parameters._values.begin();
+        _parameters->clear();
+        _currentParameter = _parameters->_values.begin();
     }
 
     void nextParameter()
     {
-        if (_currentParameter != _parameters._values.end())
+        if (_currentParameter != _parameters->_values.end())
         {
             ++_currentParameter;
             *_currentParameter = 0;
-            _parameters._subParameterTest >>= 1;
+            _parameters->_subParameterTest >>= 1;
         }
     }
 
     void nextSubParameter()
     {
-        if (_currentParameter != _parameters._values.end())
+        if (_currentParameter != _parameters->_values.end())
         {
             ++_currentParameter;
             *_currentParameter = 0;
-            _parameters._subParameterTest = (_parameters._subParameterTest >> 1) | (1 << 15);
+            _parameters->_subParameterTest = (_parameters->_subParameterTest >> 1) | (1 << 15);
         }
     }
 
@@ -176,16 +162,16 @@ class SequenceParameterBuilder
 
     [[nodiscard]] constexpr bool isSubParameter(size_t index) const noexcept
     {
-        return (_parameters._subParameterTest & (1 << (count() - 1 - index))) != 0;
+        return (_parameters->_subParameterTest & (1 << (count() - 1 - index))) != 0;
     }
 
     [[nodiscard]] constexpr size_t count() const noexcept
     {
         auto const result =
-            std::distance(const_cast<SequenceParameterBuilder*>(this)->_parameters._values.begin(),
+            std::distance(const_cast<SequenceParameterBuilder*>(this)->_parameters->_values.begin(),
                           _currentParameter)
             + 1;
-        if (!(result == 1 && _parameters._values[0] == 0))
+        if (!(result == 1 && _parameters->_values[0] == 0))
             return static_cast<size_t>(result);
         else
             return 0;
@@ -193,12 +179,12 @@ class SequenceParameterBuilder
 
     constexpr void fixiate() noexcept
     {
-        _parameters._count = count();
-        _parameters._subParameterTest >>= 16 - _parameters._count;
+        _parameters->_count = count();
+        _parameters->_subParameterTest >>= 16 - _parameters->_count;
     }
 
   private:
-    SequenceParameters& _parameters;
+    gsl::not_null<SequenceParameters*> _parameters;
     Storage::iterator _currentParameter;
 };
 
@@ -267,7 +253,11 @@ class Sequence
     /// @returns the raw VT-sequence string.
     [[nodiscard]] std::string raw() const;
 
-    [[nodiscard]] FunctionDefinition const* functionDefinition() const noexcept { return select(selector()); }
+    [[nodiscard]] Function const* functionDefinition(
+        gsl::span<Function const> availableDefinitions) const noexcept
+    {
+        return select(selector(), availableDefinitions);
+    }
 
     /// Converts a FunctionSpinto a FunctionSelector, applicable for finding the corresponding
     /// FunctionDefinition.
@@ -307,7 +297,7 @@ class Sequence
     {
         if (parameterIndex < _parameters.count())
         {
-            if constexpr (crispy::is_boxed<T>)
+            if constexpr (boxed::is_boxed<T>)
                 return { T::cast_from(_parameters.at(parameterIndex)) };
             else
                 return { static_cast<T>(_parameters.at(parameterIndex)) };
@@ -326,7 +316,7 @@ class Sequence
     [[nodiscard]] T param(size_t parameterIndex) const noexcept
     {
         assert(parameterIndex < _parameters.count());
-        if constexpr (crispy::is_boxed<T>)
+        if constexpr (boxed::is_boxed<T>)
             return T::cast_from(_parameters.at(parameterIndex));
         else
             return static_cast<T>(_parameters.at(parameterIndex));
@@ -347,7 +337,7 @@ class Sequence
     [[nodiscard]] bool containsParameter(T value) const noexcept
     {
         for (size_t i = 0; i < parameterCount(); ++i)
-            if constexpr (crispy::is_boxed<T>)
+            if constexpr (boxed::is_boxed<T>)
             {
                 if (T::cast_from(_parameters.at(i)) == value)
                     return true;
@@ -370,6 +360,16 @@ class SequenceHandler
     virtual void processSequence(Sequence const& sequence) = 0;
     virtual void writeText(char32_t codepoint) = 0;
     virtual void writeText(std::string_view codepoints, size_t cellCount) = 0;
+    virtual void writeTextEnd() = 0;
 };
 
-} // namespace terminal
+template <typename T>
+concept SequenceHandlerConcept = requires(T t) {
+    { t.executeControlCode('\x00') } -> std::same_as<void>;
+    { t.processSequence(Sequence {}) } -> std::same_as<void>;
+    { t.writeText(U'a') } -> std::same_as<void>;
+    { t.writeText("a", size_t(1)) } -> std::same_as<void>;
+    { t.writeTextEnd() } -> std::same_as<void>;
+};
+
+} // namespace vtbackend

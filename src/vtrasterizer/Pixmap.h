@@ -1,16 +1,4 @@
-/**
- * This file is part of the "contour" project.
- *   Copyright (c) 2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/primitives.h>
@@ -19,14 +7,14 @@
 
 #include <crispy/point.h>
 
-#include <fmt/format.h>
-
 #include <range/v3/view/iota.hpp>
 
 #include <algorithm>
+#include <cstdint>
+#include <format>
 #include <functional>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 // Helper to write ratios like 1/8_th
@@ -58,13 +46,13 @@ constexpr RatioBlock left(double r) noexcept  { return RatioBlock { { 0, 0 },   
 constexpr RatioBlock right(double r) noexcept { return RatioBlock { { 1.f - r, 0.f }, { 1.f, 1.f } }; }
 // clang-format on
 
-constexpr crispy::Point operator*(ImageSize a, Ratio b) noexcept
+constexpr crispy::point operator*(vtbackend::ImageSize a, Ratio b) noexcept
 {
-    return crispy::Point { static_cast<int>(a.width.as<double>() * b.x),
+    return crispy::point { static_cast<int>(a.width.as<double>() * b.x),
                            static_cast<int>(a.height.as<double>() * b.y) };
 }
 
-constexpr auto linearEq(crispy::Point p1, crispy::Point p2) noexcept
+constexpr auto linearEq(crispy::point p1, crispy::point p2) noexcept
 {
     // Require(p2.x != p1.x);
     auto const m = double(p2.y - p1.y) / double(p2.x - p1.x);
@@ -74,20 +62,20 @@ constexpr auto linearEq(crispy::Point p1, crispy::Point p2) noexcept
     };
 }
 
-enum class Dir
+enum class Dir : uint8_t
 {
     Top,
     Right,
     Bottom,
     Left
 };
-enum class Inverted
+enum class Inverted : uint8_t
 {
     No,
     Yes
 };
 
-enum Arc
+enum Arc : uint8_t
 {
     NoArc,
     TopLeft,
@@ -97,7 +85,7 @@ enum Arc
 };
 
 template <typename F>
-auto makeDraw4WaySymmetric(Arc arc, ImageSize size, F putpixel)
+auto makeDraw4WaySymmetric(Arc arc, vtbackend::ImageSize size, F putpixel)
 {
     return [=](int x, int y) {
         auto const w = unbox<int>(size.width);
@@ -114,7 +102,7 @@ auto makeDraw4WaySymmetric(Arc arc, ImageSize size, F putpixel)
 }
 
 template <typename F>
-constexpr void drawEllipse(F doDraw4WaySymmetric, crispy::Point radius)
+constexpr void drawEllipse(F doDraw4WaySymmetric, crispy::point radius)
 {
     auto const rx = radius.x;
     auto const ry = radius.y;
@@ -178,7 +166,10 @@ constexpr void drawEllipse(F doDraw4WaySymmetric, crispy::Point radius)
 }
 
 template <typename PutPixel>
-constexpr void drawEllipseArc(PutPixel putpixel, ImageSize imageSize, crispy::Point radius, Arc arc)
+constexpr void drawEllipseArc(PutPixel putpixel,
+                              vtbackend::ImageSize imageSize,
+                              crispy::point radius,
+                              Arc arc)
 {
     drawEllipse(makeDraw4WaySymmetric(arc, imageSize, std::move(putpixel)), radius);
 }
@@ -186,37 +177,35 @@ constexpr void drawEllipseArc(PutPixel putpixel, ImageSize imageSize, crispy::Po
 /// Alpha-channel 2D image.
 struct Pixmap
 {
-    atlas::Buffer _buffer {};
-    ImageSize _size {};
-    ImageSize _downsampledSize {};
-    std::function<int(int, int)> _filler = [](int, int) {
+    atlas::Buffer buffer {};
+    vtbackend::ImageSize size {};
+    vtbackend::ImageSize downsampledSize {};
+    std::function<int(int, int)> filler = [](int, int) {
         return 0xFF;
     };
-    int _lineThickness = 1;
-    int _baseLine = 0; // baseline position relative to cell bottom.
-
-    [[nodiscard]] constexpr ImageSize downsampledSize() const noexcept { return _downsampledSize; }
+    int lineThickness = 1;
+    int baseLine = 0; // baseline position relative to cell bottom.
 
     Pixmap& halfFilledCircleLeft();
     Pixmap& halfFilledCircleRight();
-    Pixmap& lineThickness(int n) noexcept
+    Pixmap& getlineThickness(int n) noexcept
     {
-        _lineThickness = n;
+        lineThickness = n;
         return *this;
     }
     Pixmap& baseline(int n) noexcept
     {
-        _baseLine = n;
+        baseLine = n;
         return *this;
     }
     Pixmap& line(Ratio from, Ratio to);
 
     Pixmap& rect(Ratio topLeft, Ratio bottomRight) noexcept
     {
-        auto const top = int(topLeft.y * unbox<double>(_size.height));
-        auto const left = int(topLeft.x * unbox<double>(_size.width));
-        auto const bottom = int(bottomRight.y * unbox<double>(_size.height));
-        auto const right = int(bottomRight.x * unbox<double>(_size.width));
+        auto const top = int(topLeft.y * unbox<double>(size.height));
+        auto const left = int(topLeft.x * unbox<double>(size.width));
+        auto const bottom = int(bottomRight.y * unbox<double>(size.height));
+        auto const right = int(bottomRight.x * unbox<double>(size.width));
 
         for (int y = top; y < bottom; ++y)
             for (int x = left; x < right; ++x)
@@ -229,7 +218,7 @@ struct Pixmap
     template <typename... More>
     Pixmap& segment_bar(int which, More... more);
 
-    Pixmap& fill() { return fill(_filler); }
+    Pixmap& fill() { return fill(filler); }
     template <typename F>
     Pixmap& fill(F const& filler);
 
@@ -243,7 +232,7 @@ struct Pixmap
 };
 
 template <std::size_t SupersamplingFactor = 1>
-inline Pixmap blockElement(ImageSize size)
+inline Pixmap blockElement(vtbackend::ImageSize size)
 {
     auto const superSize = size * SupersamplingFactor;
     return Pixmap { atlas::Buffer(superSize.width.as<size_t>() * superSize.height.as<size_t>(), 0x00),
@@ -252,34 +241,34 @@ inline Pixmap blockElement(ImageSize size)
 }
 
 template <size_t N, typename F>
-Pixmap blockElement(ImageSize size, F f)
+Pixmap blockElement(vtbackend::ImageSize size, F f)
 {
     auto p = blockElement<N>(size);
-    p._filler = f;
+    p.filler = f;
     return p;
 }
 
 // {{{ Pixmap inlines
 inline void Pixmap::paint(int x, int y, uint8_t value)
 {
-    auto const w = unbox<int>(_size.width);
-    auto const h = unbox<int>(_size.height) - 1;
+    auto const w = unbox<int>(size.width);
+    auto const h = unbox<int>(size.height) - 1;
     if (!(0 <= y && y <= h))
         return;
     if (!(0 <= x && x < w))
         return;
-    _buffer.at(static_cast<unsigned>((h - y) * w + x)) = value;
+    buffer.at(static_cast<unsigned>((h - y) * w + x)) = value;
 }
 
 inline void Pixmap::paintOver(int x, int y, uint8_t intensity)
 {
-    auto const w = unbox<int>(_size.width);
-    auto const h = unbox<int>(_size.height) - 1;
+    auto const w = unbox<int>(size.width);
+    auto const h = unbox<int>(size.height) - 1;
     if (!(0 <= y && y <= h))
         return;
     if (!(0 <= x && x < w))
         return;
-    auto& target = _buffer.at(static_cast<unsigned>((h - y) * w + x));
+    auto& target = buffer.at(static_cast<unsigned>((h - y) * w + x));
     target = static_cast<uint8_t>(std::min(static_cast<int>(target) + static_cast<int>(intensity), 255));
 }
 
@@ -293,8 +282,8 @@ inline void Pixmap::paintOverThick(int x, int y, uint8_t intensity, int sx, int 
 template <typename F>
 Pixmap& Pixmap::fill(F const& filler)
 {
-    for (auto const y: ::ranges::views::iota(0, unbox<int>(_size.height)))
-        for (auto const x: ::ranges::views::iota(0, unbox<int>(_size.width)))
+    for (auto const y: ::ranges::views::iota(0, unbox<int>(size.height)))
+        for (auto const x: ::ranges::views::iota(0, unbox<int>(size.width)))
             paint(x, y, static_cast<uint8_t>(filler(x, y)));
     return *this;
 }
@@ -307,31 +296,23 @@ Pixmap& Pixmap::segment_bar(int which, More... more)
 }
 // }}}
 
-} // end namespace terminal::rasterizer
+} // end namespace vtrasterizer
 
-namespace fmt // {{{
-{
 template <>
-struct formatter<terminal::rasterizer::Arc>
+struct std::formatter<vtrasterizer::Arc>: std::formatter<string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtrasterizer::Arc value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::rasterizer::Arc value, FormatContext& ctx)
-    {
-        using terminal::rasterizer::Arc;
+        using vtrasterizer::Arc;
+        string_view name;
         switch (value)
         {
-            case Arc::NoArc: return fmt::format_to(ctx.out(), "NoArc");
-            case Arc::TopLeft: return fmt::format_to(ctx.out(), "TopLeft");
-            case Arc::TopRight: return fmt::format_to(ctx.out(), "TopRight");
-            case Arc::BottomLeft: return fmt::format_to(ctx.out(), "BottomLeft");
-            case Arc::BottomRight: return fmt::format_to(ctx.out(), "BottomRight");
+            case Arc::NoArc: name = "NoArc"; break;
+            case Arc::TopLeft: name = "TopLeft"; break;
+            case Arc::TopRight: name = "TopRight"; break;
+            case Arc::BottomLeft: name = "BottomLeft"; break;
+            case Arc::BottomRight: name = "BottomRight"; break;
         }
-        return fmt::format_to(ctx.out(), "?");
+        return formatter<string_view>::format(name, ctx);
     }
 };
-} // namespace fmt

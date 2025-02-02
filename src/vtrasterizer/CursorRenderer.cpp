@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtbackend/Color.h>
 
 #include <vtrasterizer/CursorRenderer.h>
@@ -31,7 +19,7 @@ using std::optional;
 using std::runtime_error;
 using std::string;
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 namespace
@@ -39,18 +27,20 @@ namespace
     // Times 3 because double-width cursor shapes need 2 tiles,
     // plus 1 for narrow-width cursor shapes.
     constexpr uint32_t DirectMappedTilesCount =
-        static_cast<uint32_t>(std::numeric_limits<CursorShape>::count()) * 3;
+        static_cast<uint32_t>(std::numeric_limits<vtbackend::CursorShape>::count()) * 3;
 
-    constexpr uint32_t toDirectMappingIndex(CursorShape shape, int width, uint32_t sliceIndex) noexcept
+    constexpr uint32_t toDirectMappingIndex(vtbackend::CursorShape shape,
+                                            int width,
+                                            uint32_t sliceIndex) noexcept
     {
         return static_cast<uint32_t>(shape) + sliceIndex
-               + uint32_t(width - 1)
-                     * (static_cast<uint32_t>(std::numeric_limits<CursorShape>::count())
-                        + static_cast<uint32_t>(shape));
+               + (uint32_t(width - 1)
+                  * (static_cast<uint32_t>(std::numeric_limits<vtbackend::CursorShape>::count())
+                     + static_cast<uint32_t>(shape)));
     }
 } // namespace
 
-CursorRenderer::CursorRenderer(GridMetrics const& gridMetrics, CursorShape shape):
+CursorRenderer::CursorRenderer(GridMetrics const& gridMetrics, vtbackend::CursorShape shape):
     Renderable { gridMetrics }, _shape { shape }
 {
 }
@@ -68,7 +58,7 @@ void CursorRenderer::setTextureAtlas(TextureAtlas& atlas)
     initializeDirectMapping();
 }
 
-void CursorRenderer::setShape(CursorShape shape)
+void CursorRenderer::setShape(vtbackend::CursorShape shape)
 {
     _shape = shape;
 }
@@ -83,12 +73,12 @@ void CursorRenderer::initializeDirectMapping()
 
     for (int width = 1; width <= 2; ++width)
     {
-        for (CursorShape const shape: each_element<CursorShape>())
+        for (vtbackend::CursorShape const shape: each_element<vtbackend::CursorShape>())
         {
             auto const directMappingIndex = toDirectMappingIndex(shape, width, 0);
             auto const tileIndex = _directMapping.toTileIndex(directMappingIndex);
             auto const tileLocation = _textureAtlas->tileLocation(tileIndex);
-            TextureAtlas::TileCreateData tileData = createTileData(shape, width, tileLocation);
+            TextureAtlas::TileCreateData const tileData = createTileData(shape, width, tileLocation);
             uint32_t const offsetX = 0;
             auto const tileWidth = _gridMetrics.cellSize.width;
             for (TileSliceIndex const slice: atlas::sliced(tileWidth, offsetX, tileData.bitmapSize))
@@ -102,11 +92,11 @@ void CursorRenderer::initializeDirectMapping()
     }
 }
 
-auto CursorRenderer::createTileData(CursorShape cursorShape,
+auto CursorRenderer::createTileData(vtbackend::CursorShape cursorShape,
                                     int columnWidth,
                                     atlas::TileLocation tileLocation) -> TextureAtlas::TileCreateData
 {
-    auto const width = Width::cast_from(unbox<int>(_gridMetrics.cellSize.width) * columnWidth);
+    auto const width = vtbackend::Width::cast_from(unbox<int>(_gridMetrics.cellSize.width) * columnWidth);
     auto const height = _gridMetrics.cellSize.height;
     auto const defaultBitmapSize = ImageSize { width, height };
     auto const baseline = _gridMetrics.baseline;
@@ -125,26 +115,26 @@ auto CursorRenderer::createTileData(CursorShape cursorShape,
 
     switch (cursorShape)
     {
-        case CursorShape::Block:
+        case vtbackend::CursorShape::Block:
             return create(defaultBitmapSize, [&]() {
                 return atlas::Buffer(unbox<size_t>(width) * unbox<size_t>(height), 0xFFu);
             });
-        case CursorShape::Underscore:
+        case vtbackend::CursorShape::Underscore:
             return create(defaultBitmapSize, [&]() {
-                auto const height = Height::cast_from(baseline);
+                auto const height = vtbackend::Height::cast_from(baseline);
                 auto const thickness = (unsigned) max(LineThickness * baseline / 3, 1);
-                auto const base_y = max((*height - thickness) / 2, 0u);
+                auto const baseY = max((*height - thickness) / 2, 0u);
                 auto image = atlas::Buffer(defaultBitmapSize.area(), 0);
 
                 assert(thickness <= static_cast<size_t>(baseline));
                 for (auto y = size_t(0); y <= static_cast<size_t>(thickness); ++y)
                     for (size_t x = 0; x < *width; ++x)
-                        image[(defaultBitmapSize.height.as<size_t>() - 1 - base_y - unsigned(y))
-                                  * unbox<size_t>(width)
+                        image[((defaultBitmapSize.height.as<size_t>() - 1 - baseY - unsigned(y))
+                               * unbox<size_t>(width))
                               + x] = 0xFF;
                 return image;
             });
-        case CursorShape::Bar:
+        case vtbackend::CursorShape::Bar:
             return create(defaultBitmapSize, [&]() {
                 auto const thickness = (size_t) max(LineThickness * baseline / 3, 1);
                 // auto const base_y = max((height - thickness) / 2, 0);
@@ -152,21 +142,21 @@ auto CursorRenderer::createTileData(CursorShape cursorShape,
 
                 for (size_t x = 0; x < thickness; ++x)
                     for (size_t y = 0; y < unbox<size_t>(height); ++y)
-                        image[y * *width + x] = 0xFF;
+                        image[(y * unbox(width)) + x] = 0xFF;
                 return image;
             });
-        case CursorShape::Rectangle:
+        case vtbackend::CursorShape::Rectangle:
             return create(defaultBitmapSize, [&]() {
                 auto const height = _gridMetrics.cellSize.height;
                 auto image = atlas::Buffer(unbox<size_t>(width) * unbox<size_t>(height), 0xFFu);
                 auto const thickness = max(unbox<size_t>(width) / 12, size_t { 1 });
 
-                auto const innerWidth = unbox<size_t>(width) - 2 * thickness;
-                auto const innerHeight = unbox<size_t>(height) - 2 * thickness;
+                auto const innerWidth = unbox<size_t>(width) - (2 * thickness);
+                auto const innerHeight = unbox<size_t>(height) - (2 * thickness);
 
                 for (size_t y = thickness; y <= innerHeight; ++y)
                     for (size_t x = thickness; x <= innerWidth; ++x)
-                        image[y * *width + x] = 0;
+                        image[(y * unbox(width)) + x] = 0;
 
                 return image;
             });
@@ -175,13 +165,13 @@ auto CursorRenderer::createTileData(CursorShape cursorShape,
     return {};
 }
 
-void CursorRenderer::render(crispy::Point pos, int columnWidth, RGBColor color)
+void CursorRenderer::render(crispy::point pos, int columnWidth, vtbackend::RGBColor color)
 {
     for (uint32_t i = 0; i < uint32_t(columnWidth); ++i)
     {
         auto const directMappingIndex = toDirectMappingIndex(_shape, columnWidth, i);
         auto const tileIndex = _directMapping.toTileIndex(directMappingIndex);
-        auto const x = pos.x + int(i) * unbox<int>(_gridMetrics.cellSize.width);
+        auto const x = pos.x + (int(i) * unbox<int>(_gridMetrics.cellSize.width));
         AtlasTileAttributes const& tileAttributes = _textureAtlas->directMapped(tileIndex);
         renderTile({ int(x) }, { pos.y }, color, tileAttributes);
     }
@@ -191,4 +181,4 @@ void CursorRenderer::inspect(std::ostream& /*output*/) const
 {
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

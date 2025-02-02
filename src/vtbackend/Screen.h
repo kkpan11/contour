@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/Capabilities.h>
@@ -20,8 +8,7 @@
 #include <vtbackend/Grid.h>
 #include <vtbackend/Hyperlink.h>
 #include <vtbackend/Image.h>
-#include <vtbackend/ScreenEvents.h>
-#include <vtbackend/TerminalState.h>
+#include <vtbackend/ScreenBase.h>
 #include <vtbackend/VTType.h>
 #include <vtbackend/cell/CellConcept.h>
 
@@ -32,73 +19,106 @@
 #include <crispy/size.h>
 #include <crispy/utils.h>
 
-#include <fmt/format.h>
-
-#include <algorithm>
-#include <bitset>
-#include <deque>
-#include <functional>
-#include <list>
-#include <map>
-#include <memory>
-#include <optional>
-#include <set>
-#include <sstream>
-#include <stack>
-#include <string>
-#include <string_view>
-#include <vector>
-
 #include <libunicode/grapheme_segmenter.h>
 #include <libunicode/width.h>
 
-namespace terminal
+#include <gsl/pointers>
+
+#include <algorithm>
+#include <atomic>
+#include <format>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace vtbackend
 {
 
-class ScreenBase: public SequenceHandler
+class SixelImageBuilder;
+class Terminal;
+struct Settings;
+
+// {{{ TODO: move me somewhere more appropriate
+// XTSMGRAPHICS (xterm extension)
+// CSI ? Pi ; Pa ; Pv S
+namespace XtSmGraphics
 {
-  public:
-    virtual void verifyState() const = 0;
-    virtual void fail(std::string const& message) const = 0;
+    enum class Item : uint8_t
+    {
+        NumberOfColorRegisters = 1,
+        SixelGraphicsGeometry = 2,
+        ReGISGraphicsGeometry = 3,
+    };
 
-    [[nodiscard]] Cursor& cursor() noexcept { return _cursor; }
-    [[nodiscard]] Cursor const& cursor() const noexcept { return _cursor; }
-    [[nodiscard]] Cursor const& savedCursorState() const noexcept { return _savedCursor; }
-    void resetSavedCursorState() { _savedCursor = {}; }
-    virtual void saveCursor() = 0;
-    virtual void restoreCursor() = 0;
+    enum class Action : uint8_t
+    {
+        Read = 1,
+        ResetToDefault = 2,
+        SetToValue = 3,
+        ReadLimit = 4
+    };
 
-    [[nodiscard]] virtual Margin margin() const noexcept = 0;
-    [[nodiscard]] virtual Margin& margin() noexcept = 0;
-    [[nodiscard]] virtual bool contains(CellLocation coord) const noexcept = 0;
-    [[nodiscard]] virtual bool isCellEmpty(CellLocation position) const noexcept = 0;
-    [[nodiscard]] virtual bool compareCellTextAt(CellLocation position, char codepoint) const noexcept = 0;
-    [[nodiscard]] virtual std::string cellTextAt(CellLocation position) const noexcept = 0;
-    [[nodiscard]] virtual LineFlags lineFlagsAt(LineOffset line) const noexcept = 0;
-    virtual void enableLineFlags(LineOffset lineOffset, LineFlags flags, bool enable) noexcept = 0;
-    [[nodiscard]] virtual bool isLineFlagEnabledAt(LineOffset line, LineFlags flags) const noexcept = 0;
-    [[nodiscard]] virtual std::string lineTextAt(LineOffset line,
-                                                 bool stripLeadingSpaces = true,
-                                                 bool stripTrailingSpaces = true) const noexcept = 0;
-    [[nodiscard]] virtual bool isLineEmpty(LineOffset line) const noexcept = 0;
-    [[nodiscard]] virtual uint8_t cellWidthAt(CellLocation position) const noexcept = 0;
-    [[nodiscard]] virtual LineCount historyLineCount() const noexcept = 0;
-    [[nodiscard]] virtual HyperlinkId hyperlinkIdAt(CellLocation position) const noexcept = 0;
-    [[nodiscard]] virtual std::shared_ptr<HyperlinkInfo const> hyperlinkAt(
-        CellLocation pos) const noexcept = 0;
-    virtual void inspect(std::string const& message, std::ostream& os) const = 0;
-    virtual void moveCursorTo(LineOffset line, ColumnOffset column) = 0; // CUP
-    virtual void updateCursorIterator() noexcept = 0;
+    using Value = std::variant<std::monostate, unsigned, ImageSize>;
+} // namespace XtSmGraphics
 
-    [[nodiscard]] virtual std::optional<CellLocation> search(std::u32string_view searchText,
-                                                             CellLocation startPosition) = 0;
-    [[nodiscard]] virtual std::optional<CellLocation> searchReverse(std::u32string_view searchText,
-                                                                    CellLocation startPosition) = 0;
+/// TBC - Tab Clear
+///
+/// This control function clears tab stops.
+enum class HorizontalTabClear : uint8_t
+{
+    /// Ps = 0 (default)
+    AllTabs,
 
-  protected:
-    Cursor _cursor {};
-    Cursor _savedCursor {};
+    /// Ps = 3
+    UnderCursor,
 };
+
+/// Input: CSI 16 t
+///
+///  Input: CSI 14 t (for text area size)
+///  Input: CSI 14; 2 t (for full window size)
+/// Output: CSI 14 ; width ; height ; t
+enum class RequestPixelSize : uint8_t // TODO: rename RequestPixelSize to RequestArea?
+{
+    CellArea,
+    TextArea,
+    WindowArea,
+};
+
+/// DECRQSS - Request Status String
+enum class RequestStatusString : uint8_t
+{
+    SGR,
+    DECSCL,
+    DECSCUSR,
+    DECSCA,
+    DECSTBM,
+    DECSLRM,
+    DECSLPP,
+    DECSCPP,
+    DECSNLS,
+    DECSASD,
+    DECSSDT,
+};
+
+inline std::string setDynamicColorValue(
+    RGBColor const& color) // TODO: yet another helper. maybe SemanticsUtils static class?
+{
+    auto const r = static_cast<unsigned>(static_cast<float>(color.red) / 255.0f * 0xFFFF);
+    auto const g = static_cast<unsigned>(static_cast<float>(color.green) / 255.0f * 0xFFFF);
+    auto const b = static_cast<unsigned>(static_cast<float>(color.blue) / 255.0f * 0xFFFF);
+    return std::format("rgb:{:04X}/{:04X}/{:04X}", r, g, b);
+}
+
+enum class ApplyResult : uint8_t
+{
+    Ok,
+    Invalid,
+    Unsupported,
+};
+// }}}
 
 /**
  * Terminal Screen.
@@ -108,20 +128,23 @@ class ScreenBase: public SequenceHandler
  * allowing the object owner to control which part of the screen (or history)
  * to be viewn.
  */
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 class Screen final: public ScreenBase, public capabilities::StaticDatabase
 {
   public:
     /// @param terminal            reference to the terminal this display belongs to.
+    /// @param margin              margin of this display.
     /// @param pageSize            page size of this display. This is passed because it does not necessarily
     ///                            need to match the terminal's main display page size.
     /// @param reflowOnResize      whether or not to perform virtual line text reflow on resuze.
     /// @param maxHistoryLineCount maximum number of lines that are can be scrolled back to via Viewport.
+    /// @param name                name of this screen, used for logging purposes.
     Screen(Terminal& terminal,
+           gsl::not_null<Margin*> margin,
            PageSize pageSize,
            bool reflowOnResize,
-           MaxHistoryLineCount maxHistoryLineCount);
+           MaxHistoryLineCount maxHistoryLineCount,
+           std::string_view name);
 
     Screen(Screen const&) = delete;
     Screen& operator=(Screen const&) = delete;
@@ -135,6 +158,7 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     // {{{ SequenceHandler overrides
     void writeText(char32_t codepoint) override;
     void writeText(std::string_view text, size_t cellCount) override;
+    void writeTextEnd() override;
     void executeControlCode(char controlCode) override;
     void processSequence(Sequence const& seq) override;
     // }}}
@@ -232,9 +256,11 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     void reverseIndex(); // RI
 
     void setMark();
+    void setScrollSpeed(int speed);      // DECSSCLS
     void deviceStatusReport();           // DSR
     void reportCursorPosition();         // CPR
     void reportExtendedCursorPosition(); // DECXCPR
+    void reportColorPaletteUpdate() override;
     void selectConformanceLevel(VTType level);
     void requestDynamicColor(DynamicColorName name);
     void requestCapability(capabilities::Code code);
@@ -253,7 +279,6 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     void setForegroundColor(Color color);
     void setBackgroundColor(Color color);
     void setUnderlineColor(Color color);
-    void setCursorStyle(CursorDisplay display, CursorShape shape);
     void setGraphicsRendition(GraphicsRendition rendition);
     void screenAlignmentPattern();
     void applicationKeypadMode(bool enable);
@@ -297,16 +322,13 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     void inspect(std::string const& message, std::ostream& os) const override;
 
     // for DECSC and DECRC
-    void saveModes(std::vector<DECMode> const& modes);
-    void restoreModes(std::vector<DECMode> const& modes);
     void requestAnsiMode(unsigned int mode);
     void requestDECMode(unsigned int mode);
 
     [[nodiscard]] PageSize pageSize() const noexcept { return _grid.pageSize(); }
-    [[nodiscard]] ImageSize pixelSize() const noexcept { return _state.cellPixelSize * _settings.pageSize; }
 
-    [[nodiscard]] Margin margin() const noexcept override { return _grid.margin(); }
-    [[nodiscard]] Margin& margin() noexcept override { return _grid.margin(); }
+    [[nodiscard]] constexpr Margin margin() const noexcept { return *_margin; }
+    [[nodiscard]] constexpr Margin& margin() noexcept { return *_margin; }
 
     [[nodiscard]] bool isFullHorizontalMargins() const noexcept
     {
@@ -405,12 +427,18 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
         return { clampedLine(coord.line), clampedColumn(coord.column) };
     }
 
+    [[nodiscard]] CellLocation clampToMargin(CellLocation pos) const noexcept
+    {
+        return { std::clamp(pos.line, margin().vertical.from, margin().vertical.to),
+                 std::clamp(pos.column, margin().horizontal.from, margin().horizontal.to) };
+    }
+
     // Tests if given coordinate is within the visible screen area.
     [[nodiscard]] bool contains(CellLocation coord) const noexcept override
     {
-        return LineOffset(0) <= coord.line && coord.line < boxed_cast<LineOffset>(_settings.pageSize.lines)
+        return LineOffset(0) <= coord.line && coord.line < boxed_cast<LineOffset>(pageSize().lines)
                && ColumnOffset(0) <= coord.column
-               && coord.column <= boxed_cast<ColumnOffset>(_settings.pageSize.columns);
+               && coord.column <= boxed_cast<ColumnOffset>(pageSize().columns);
     }
 
     [[nodiscard]] std::optional<CellLocation> search(std::u32string_view searchText,
@@ -423,30 +451,11 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
         return useCellAt(_lastCursorPosition.line, _lastCursorPosition.column);
     }
 
-    void updateCursorIterator() noexcept override
-    {
-#if defined(LIBTERMINAL_CACHE_CURRENT_LINE_POINTER)
-        _currentLine = &_grid.lineAt(_cursor.position.line);
-#endif
-    }
+    void updateCursorIterator() noexcept override { _currentLine = &_grid.lineAt(_cursor.position.line); }
 
-    [[nodiscard]] Line<Cell>& currentLine() noexcept
-    {
-#if defined(LIBTERMINAL_CACHE_CURRENT_LINE_POINTER)
-        return *_currentLine;
-#else
-        return _grid.lineAt(_cursor.position.line);
-#endif
-    }
+    [[nodiscard]] Line<Cell>& currentLine() noexcept { return *_currentLine; }
 
-    [[nodiscard]] Line<Cell> const& currentLine() const noexcept
-    {
-#if defined(LIBTERMINAL_CACHE_CURRENT_LINE_POINTER)
-        return *_currentLine;
-#else
-        return _grid.lineAt(_cursor.position.line);
-#endif
-    }
+    [[nodiscard]] Line<Cell> const& currentLine() const noexcept { return *_currentLine; }
 
     [[nodiscard]] Cell& useCurrentCell() noexcept { return currentLine().useCellAt(_cursor.position.column); }
 
@@ -470,8 +479,6 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     [[nodiscard]] Cell& useCellAt(CellLocation p) noexcept { return useCellAt(p.line, p.column); }
     [[nodiscard]] Cell const& at(CellLocation p) const noexcept { return _grid.at(p.line, p.column); }
 
-    [[nodiscard]] std::string const& windowTitle() const noexcept { return _state.windowTitle; }
-
     /// Finds the next marker right after the given line position.
     ///
     /// @paramn startLine the line number of the current cursor (1..N) for screen area, or
@@ -488,9 +495,6 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     ///         in the screen area, and in the savedLines area otherwise.
     [[nodiscard]] std::optional<LineOffset> findMarkerUpwards(LineOffset startLine) const;
 
-    /// ScreenBuffer's type, such as main screen or alternate screen.
-    [[nodiscard]] ScreenType bufferType() const noexcept { return _state.screenType; }
-
     void scrollUp(LineCount n) { scrollUp(n, margin()); }
     void scrollDown(LineCount n) { scrollDown(n, margin()); }
 
@@ -505,21 +509,12 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
         return _grid.isLineWrapped(lineNumber);
     }
 
-    [[nodiscard]] ColorPalette& colorPalette() noexcept { return _state.colorPalette; }
-    [[nodiscard]] ColorPalette const& colorPalette() const noexcept { return _state.colorPalette; }
-
-    [[nodiscard]] ColorPalette& defaultColorPalette() noexcept { return _state.defaultColorPalette; }
-    [[nodiscard]] ColorPalette const& defaultColorPalette() const noexcept
-    {
-        return _state.defaultColorPalette;
-    }
-
     [[nodiscard]] bool isCellEmpty(CellLocation position) const noexcept override
     {
         return _grid.lineAt(position.line).cellEmptyAt(position.column);
     }
 
-    [[nodiscard]] bool compareCellTextAt(CellLocation position, char codepoint) const noexcept override
+    [[nodiscard]] bool compareCellTextAt(CellLocation position, char32_t codepoint) const noexcept override
     {
         auto const& cell = _grid.lineAt(position.line).inflatedBuffer().at(position.column.as<size_t>());
         return CellUtil::compareText(cell, codepoint);
@@ -529,6 +524,12 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     [[nodiscard]] std::string cellTextAt(CellLocation position) const noexcept override
     {
         return _grid.lineAt(position.line).inflatedBuffer().at(position.column.as<size_t>()).toUtf8();
+    }
+
+    [[nodiscard]] CellFlags cellFlagsAt(CellLocation position) const noexcept override
+    {
+        // TODO: This is not efficient. We should have a direct access to the flags.
+        return _grid.lineAt(position.line).inflatedBuffer().at(position.column.as<size_t>()).flags();
     }
 
     [[nodiscard]] LineFlags lineFlagsAt(LineOffset line) const noexcept override
@@ -576,22 +577,10 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
         return at(position).hyperlink();
     }
 
-    [[nodiscard]] std::shared_ptr<HyperlinkInfo const> hyperlinkAt(CellLocation pos) const noexcept override
-    {
-        return _state.hyperlinks.hyperlinkById(hyperlinkIdAt(pos));
-    }
+    [[nodiscard]] std::shared_ptr<HyperlinkInfo const> hyperlinkAt(CellLocation pos) const noexcept override;
 
-    [[nodiscard]] HyperlinkStorage const& hyperlinks() const noexcept { return _state.hyperlinks; }
-
-    void resetInstructionCounter() noexcept { _state.instructionCounter = 0; }
-    [[nodiscard]] uint64_t instructionCounter() const noexcept { return _state.instructionCounter; }
-    [[nodiscard]] char32_t precedingGraphicCharacter() const noexcept
-    {
-        return _state.parser.precedingGraphicCharacter();
-    }
-
-    void applyAndLog(FunctionDefinition const& function, Sequence const& seq);
-    [[nodiscard]] ApplyResult apply(FunctionDefinition const& function, Sequence const& seq);
+    void applyAndLog(Function const& function, Sequence const& seq);
+    [[nodiscard]] ApplyResult apply(Function const& function, Sequence const& seq);
 
     void fail(std::string const& message) const override;
 
@@ -601,6 +590,17 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     void saveCursor() override;
     void restoreCursor() override;
     void restoreCursor(Cursor const& savedCursor);
+
+    void restoreGraphicsRendition();
+    void saveGraphicsRendition();
+
+    void reply(std::string_view text);
+
+    template <typename... Ts>
+    void reply(std::string_view message, Ts const&... args)
+    {
+        reply(std::vformat(message, std::make_format_args(args...)));
+    }
 
   private:
     void writeTextInternal(char32_t codepoint);
@@ -622,7 +622,7 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     void linefeed(ColumnOffset column);
 
     void writeCharToCurrentAndAdvance(char32_t codepoint) noexcept;
-    void clearAndAdvance(int offset) noexcept;
+    void clearAndAdvance(int oldWidth, int newWidth) noexcept;
 
     void scrollUp(LineCount n, GraphicsAttributes sgr, Margin margin);
     void scrollUp(LineCount n, Margin margin);
@@ -638,32 +638,85 @@ class Screen final: public ScreenBase, public capabilities::StaticDatabase
     [[nodiscard]] std::unique_ptr<ParserExtension> hookDECRQSS(Sequence const& seq);
     [[nodiscard]] std::unique_ptr<ParserExtension> hookXTGETTCAP(Sequence const& seq);
 
-    Terminal& _terminal;
-    Settings& _settings;
-    TerminalState& _state;
+    gsl::not_null<Terminal*> _terminal;
+    gsl::not_null<Settings*> _settings;
+    gsl::not_null<Margin*> _margin;
     Grid<Cell> _grid;
+
+    GraphicsAttributes _savedGraphicsRenditions {};
 
     CellLocation _lastCursorPosition {};
 
-#if defined(LIBTERMINAL_CACHE_CURRENT_LINE_POINTER)
     Line<Cell>* _currentLine = nullptr;
-#endif
     std::unique_ptr<SixelImageBuilder> _sixelImageBuilder;
+
+#if defined(LIBTERMINAL_LOG_TRACE)
+    std::atomic<bool> _logCharTrace = true;
+    std::string _pendingCharTraceLog;
+#endif
+
+    std::string_view _name;
 };
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 inline void Screen<Cell>::scrollUp(LineCount n, Margin margin)
 {
     scrollUp(n, cursor().graphicsRendition, margin);
 }
 
-template <typename Cell>
-CRISPY_REQUIRES(CellConcept<Cell>)
+template <CellConcept Cell>
 inline bool Screen<Cell>::isContiguousToCurrentLine(std::string_view continuationChars) const noexcept
 {
+#if defined(_MSC_VER)
+    return false;
+#else
+    // MSVC does not like comparison of this iterator, most likely bug on msvc side since they are of the same
+    // type can be checked with std::equality_comparable_with<std::string_view::iterator,
+    // decltype(line.trivialBuffer().text.view())::iterator>
     auto const& line = currentLine();
     return line.isTrivialBuffer() && line.trivialBuffer().text.view().end() == continuationChars.begin();
+#endif
 }
 
-} // namespace terminal
+} // namespace vtbackend
+
+// {{{ fmt formatter
+template <>
+struct std::formatter<vtbackend::RequestStatusString>: formatter<std::string_view>
+{
+    auto format(vtbackend::RequestStatusString value, auto& ctx) const
+    {
+        string_view name;
+        switch (value)
+        {
+            case vtbackend::RequestStatusString::SGR: name = "SGR"; break;
+            case vtbackend::RequestStatusString::DECSCL: name = "DECSCL"; break;
+            case vtbackend::RequestStatusString::DECSCUSR: name = "DECSCUSR"; break;
+            case vtbackend::RequestStatusString::DECSCA: name = "DECSCA"; break;
+            case vtbackend::RequestStatusString::DECSTBM: name = "DECSTBM"; break;
+            case vtbackend::RequestStatusString::DECSLRM: name = "DECSLRM"; break;
+            case vtbackend::RequestStatusString::DECSLPP: name = "DECSLPP"; break;
+            case vtbackend::RequestStatusString::DECSCPP: name = "DECSCPP"; break;
+            case vtbackend::RequestStatusString::DECSNLS: name = "DECSNLS"; break;
+            case vtbackend::RequestStatusString::DECSASD: name = "DECSASD"; break;
+            case vtbackend::RequestStatusString::DECSSDT: name = "DECSSDT"; break;
+        }
+        return formatter<string_view>::format(name, ctx);
+    }
+};
+
+template <>
+struct std::formatter<vtbackend::Sequence>
+{
+    template <typename ParseContext>
+    constexpr auto parse(ParseContext& ctx)
+    {
+        return ctx.begin();
+    }
+    template <typename FormatContext>
+    auto format(vtbackend::Sequence const& seq, FormatContext& ctx) const
+    {
+        return std::format_to(ctx.out(), "{}", seq.text());
+    }
+};
+// }}}

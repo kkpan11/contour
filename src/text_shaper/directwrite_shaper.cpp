@@ -78,7 +78,7 @@ namespace
                     float const redAlpha = a * srcR / 255.0;
                     float const greenAlpha = a * srcG / 255.0;
                     float const blueAlpha = a * srcB / 255.0;
-                    float const averageAlpha = (redAlpha + greenAlpha + blueAlpha) / 3.0;
+                    float const averageAlpha = (redAlpha + greenAlpha + blueAlpha) / 3.0f;
 
                     auto const currentR = *_it;
                     auto const currentG = *(_it + 1);
@@ -231,11 +231,11 @@ struct directwrite_shaper::Private
         fontInfo.description.familyName = wStringConverter.to_bytes(resolvedFamilyName);
         fontInfo.description.wFamilyName = resolvedFamilyName;
         fontInfo.size = _size;
-        fontInfo.metrics.line_height = int(ceil(lineHeight * dipScalar));
+        fontInfo.metrics.lineHeight = int(ceil(lineHeight * dipScalar));
         fontInfo.metrics.ascender = int(ceil(dwMetrics.ascent * dipScalar));
         fontInfo.metrics.descender = int(ceil(dwMetrics.descent * dipScalar));
-        fontInfo.metrics.underline_position = int(ceil(dwMetrics.underlinePosition * dipScalar));
-        fontInfo.metrics.underline_thickness = int(ceil(dwMetrics.underlineThickness * dipScalar));
+        fontInfo.metrics.underlinePosition = int(ceil(dwMetrics.underlinePosition * dipScalar));
+        fontInfo.metrics.underlineThickness = int(ceil(dwMetrics.underlineThickness * dipScalar));
         fontInfo.metrics.advance = int(ceil(computeAverageAdvance(fontFace) * dipScalar));
 
         fontFace->QueryInterface(&fontInfo.fontFace);
@@ -268,7 +268,7 @@ struct directwrite_shaper::Private
         return int(maxAdvance);
     }
 
-    float pixelPerDip() { return dpi_.x / 96.0; }
+    float pixelPerDip() { return static_cast<float>(dpi_.x) / 96.0f; }
 };
 
 directwrite_shaper::directwrite_shaper(DPI _dpi, font_locator& _locator):
@@ -278,7 +278,7 @@ directwrite_shaper::directwrite_shaper(DPI _dpi, font_locator& _locator):
 
 optional<font_key> directwrite_shaper::load_font(font_description const& _description, font_size _size)
 {
-    LocatorLog()("Loading font chain for: {}", _description);
+    locatorLog().operator()("Loading font chain for: {}", _description);
     font_source_list sources = d->locator_->locate(_description);
     if (sources.empty())
         return nullopt;
@@ -464,7 +464,7 @@ std::optional<rasterized_glyph> directwrite_shaper::rasterize(glyph_key _glyph, 
 {
     DxFontInfo const& fontInfo = d->fonts.at(_glyph.font);
     IDWriteFontFace5* fontFace = fontInfo.fontFace;
-    float const fontEmSize = ptToEm(_glyph.size.pt);
+    float const fontEmSize = static_cast<float>(ptToEm(_glyph.size.pt));
 
     UINT16 const glyphIndex = static_cast<UINT16>(_glyph.index.value);
     DWRITE_GLYPH_OFFSET const glyphOffset {};
@@ -509,8 +509,8 @@ std::optional<rasterized_glyph> directwrite_shaper::rasterize(glyph_key _glyph, 
     RECT textureBounds {};
     glyphAnalysis->GetAlphaTextureBounds(DWRITE_TEXTURE_CLEARTYPE_3x1, &textureBounds);
 
-    output.bitmapSize.width = crispy::Width(textureBounds.right - textureBounds.left);
-    output.bitmapSize.height = crispy::Height(textureBounds.bottom - textureBounds.top);
+    output.bitmapSize.width = vtbackend::Width(textureBounds.right - textureBounds.left);
+    output.bitmapSize.height = vtbackend::Height(textureBounds.bottom - textureBounds.top);
     output.position.x = textureBounds.left;
     output.position.y = -textureBounds.top;
 

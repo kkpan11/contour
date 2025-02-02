@@ -1,18 +1,7 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <vtrasterizer/ImageRenderer.h>
 
+#include <crispy/StrongHash.h>
 #include <crispy/algorithm.h>
 #include <crispy/times.h>
 
@@ -24,7 +13,7 @@ using std::array;
 using std::nullopt;
 using std::optional;
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 
 ImageRenderer::ImageRenderer(GridMetrics const& gridMetrics, ImageSize cellSize):
@@ -45,9 +34,9 @@ void ImageRenderer::setCellSize(ImageSize cellSize)
     // TODO: recompute rasterized images slices here?
 }
 
-void ImageRenderer::renderImage(crispy::Point pos, ImageFragment const& fragment)
+void ImageRenderer::renderImage(crispy::point pos, vtbackend::ImageFragment const& fragment)
 {
-    // std::cout << fmt::format("ImageRenderer.renderImage: {}\n", fragment);
+    // std::cout << std::format("ImageRenderer.renderImage: {}\n", fragment);
 
     AtlasTileAttributes const* tileAttributes = getOrCreateCachedTileAttributes(fragment);
     if (!tileAttributes)
@@ -56,7 +45,7 @@ void ImageRenderer::renderImage(crispy::Point pos, ImageFragment const& fragment
     // clang-format off
     _pendingRenderTilesAboveText.emplace_back(createRenderTile(atlas::RenderTile::X { pos.x },
                                                                atlas::RenderTile::Y { pos.y },
-                                                               RGBAColor::White, *tileAttributes));
+                                                               vtbackend::RGBAColor::White, *tileAttributes));
     // clang-format on
 }
 
@@ -93,17 +82,17 @@ void ImageRenderer::endFrame()
 }
 
 Renderable::AtlasTileAttributes const* ImageRenderer::getOrCreateCachedTileAttributes(
-    ImageFragment const& fragment)
+    vtbackend::ImageFragment const& fragment)
 {
     // using crispy::StrongHash;
     // auto const hash = StrongHash::compute(fragment.rasterizedImage().image().id().value)
     //                   * fragment.offset().column.value * fragment.offset().line.value
     //                   * fragment.rasterizedImage().cellSize().width.value
     //                   * fragment.rasterizedImage().cellSize().height.value;
-    auto const key = ImageFragmentKey { fragment.rasterizedImage().image().id(),
-                                        fragment.offset(),
-                                        fragment.rasterizedImage().cellSize() };
-    auto const hash = crispy::StrongHash::compute(key);
+    auto const key = ImageFragmentKey { .imageId = fragment.rasterizedImage().image().id(),
+                                        .offset = fragment.offset(),
+                                        .size = fragment.rasterizedImage().cellSize() };
+    auto const hash = crispy::strong_hash::compute(key);
 
     return textureAtlas().get_or_try_emplace(
         hash, [&](atlas::TileLocation tileLocation) -> optional<TextureAtlas::TileCreateData> {
@@ -118,7 +107,7 @@ Renderable::AtlasTileAttributes const* ImageRenderer::getOrCreateCachedTileAttri
         });
 }
 
-void ImageRenderer::discardImage(ImageId /*imageId*/)
+void ImageRenderer::discardImage(vtbackend::ImageId /*imageId*/)
 {
     // We currently don't really discard.
     // Because the GPU texture atlas is resource-guarded by an LRU hashtable.
@@ -134,4 +123,4 @@ void ImageRenderer::inspect(std::ostream& /*output*/) const
 {
 }
 
-} // namespace terminal::rasterizer
+} // namespace vtrasterizer

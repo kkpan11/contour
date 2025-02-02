@@ -1,18 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include <vtbackend/RenderBuffer.h>
 #include <vtbackend/Terminal.h>
+#include <vtbackend/cell/CellConcept.h>
 #include <vtbackend/primitives.h>
+
+#include <gsl/pointers>
 
 #include <optional>
 
-namespace terminal
+namespace vtbackend
 {
 
 /**
  * RenderBufferBuilder<Cell> renders the current screen state into a RenderBuffer.
  */
-template <typename Cell>
+template <CellConcept Cell>
 class RenderBufferBuilder
 {
   public:
@@ -112,11 +117,11 @@ class RenderBufferBuilder
     [[nodiscard]] bool gridLineContainsCursor(LineOffset screenLineOffset) const noexcept;
 
     // clang-format off
-    enum class State { Gap, Sequence };
+    enum class State : uint8_t { Gap, Sequence };
     // clang-format on
 
-    RenderBuffer& _output;
-    Terminal const& _terminal;
+    gsl::not_null<RenderBuffer*> _output;
+    gsl::not_null<Terminal const*> _terminal;
     std::optional<CellLocation> _cursorPosition;
     LineOffset _baseLine;
     bool _reverseVideo;
@@ -134,4 +139,4 @@ class RenderBufferBuilder
     size_t _searchPatternOffset = 0;
 };
 
-} // namespace terminal
+} // namespace vtbackend

@@ -43,6 +43,8 @@ theme:
     - search.share
     - search.suggest
     - toc.follow
+extra_css:
+  - stylesheets/extra.css
 markdown_extensions:
   - attr_list
   - md_in_html
@@ -50,15 +52,75 @@ markdown_extensions:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
+  - admonition
+  - pymdownx.details
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg
+
 plugins:
+  - mkdocs-video:
+      is_video: True
+      video_muted: True
+      video_controls: True
+      css_style:
+        width: "100%"
   - glightbox
   - exclude:
       glob:
         - 'drafts/*'
-        - 'configuration/*' # disabled until ready
+        - 'configuration/advanced/*' # disabled until ready
   - search:
       separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])'
 
+#Page tree
+nav:
+  - Home:
+    - index.md
+    - CONTRIBUTING.md
+  - Getting started:
+    - Installation: install.md
+    - Release Notes: release-notes.md # This page is auto-generated from metainfo.xml by the CI/CD pipeline
+  - Configuration:
+    - configuration/index.md
+    - configuration/profiles.md
+    - configuration/colors.md
+    - configuration/indicator-statusline.md
+    - configuration/key-mapping.md
+    #- Images (Advanced) : configuration/advanced/images.md
+    #- Mouse (Advanced) : configuration/advanced/images.md
+    #- Misc (Advanced) : configuration/advanced/mouse.md
+    #- Rendered (Advanced) : configuration/advanced/rendered.md
+  - Features:
+    - List of features: features.md
+    - Font ligatures: demo/font-ligatures.md
+    - Images: demo/images.md
+    - Input method editor (IME): demo/ime.md
+    - Line marks: demo/line-marks.md
+    - Status line: demo/statusline.md
+    - Input modes: input-modes.md
+    - Size indicator: demo/size_indicator.md
+  - VT sequence reference:
+    - vt-sequence/index.md
+  - VT extensions:
+    - vt-extensions/index.md
+    - vt-extensions/clickable-links.md
+    - vt-extensions/unicode-core.md
+    - vt-extensions/vertical-line-marks.md
+    - vt-extensions/color-palette-update-notifications.md
+    # TODO(publish when ready): - vt-extensions/csi-u-extended-keyboard-protocol.md
+    - vt-extensions/synchronized-output.md
+    - vt-extensions/buffer-capture.md
+    - vt-extensions/font-settings.md
+    - vt-extensions/line-reflow-mode.md
+    - vt-extensions/save-and-restore-sgr-attributes.md
+  - Internals:
+    - internals/index.md
+    - internals/CODING_STYLE.md
+    - internals/text-stack.md

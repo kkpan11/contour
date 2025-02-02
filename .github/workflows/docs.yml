@@ -1,14 +1,12 @@
 name: Docs
 
 on:
+  merge_group:
   push:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
-    branches:
-      - master
-      - edge
-  pull_request:
+      - 'metainfo.xml'
     branches:
       - master
 
@@ -19,10 +17,39 @@ concurrency:
 jobs:
   mkdocs:
     name: Deploy docs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout main
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
+      - name: Extract changes for the releases from metainfo.xml
+        run: |
+          ./scripts/extract-changelog-from-metainfo.py metainfo.xml docs/release-notes.md
+
+      - name: "update APT database"
+        run: sudo apt -q update
+      - name: "Install GCC"
+        run: sudo apt -y install g++-14
+      - name: "install dependencies"
+        run: sudo env QTVER=6 SYSDEP_ASSUME_YES=ON ./scripts/install-deps.sh
+      - name: "Post-fix embedded dependency permissions."
+        run: sudo find _deps/sources -exec chown $UID {} \;
+      - name: "create build directory"
+        run: mkdir build
+      - name: "Install-contour"
+        run: cmake --preset linux-debug -B build -G Ninja
+      - name: "build"
+        run: cmake --build build
+      - name: "create vt-sequence directory"
+        run: mkdir docs/vt-sequence
+      - name: "Generate documentation for global config"
+        run: ./build/src/contour/contour documentation configuration global > docs/configuration/index.md
+      - name: "Generate documentation for profile config"
+        run: ./build/src/contour/contour documentation configuration profile > docs/configuration/profiles.md
+      - name: "Generate vt documentation"
+        run: ./build/src/contour/contour documentation vt > docs/vt-sequence/index.md
+      - name: "Generate key mapping documentation"
+        run: ./build/src/contour/contour documentation keys >> docs/configuration/key-mapping.md
 
       - name: Deploy docs
         uses: mhausenblas/mkdocs-deploy-gh-pages@master

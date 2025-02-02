@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/CellFlags.h>
@@ -25,14 +13,15 @@
 #include <crispy/defines.h>
 #include <crispy/times.h>
 
-#include <memory>
-#include <string>
-
 #include <libunicode/capi.h>
 #include <libunicode/convert.h>
 #include <libunicode/width.h>
 
-namespace terminal
+#include <memory>
+#include <string>
+#include <utility>
+
+namespace vtbackend
 {
 
 /// Rarely needed extra cell data.
@@ -61,7 +50,7 @@ struct CellExtra
     std::shared_ptr<ImageFragment> imageFragment = nullptr;
 
     /// Cell flags.
-    CellFlags flags = CellFlags::None;
+    CellFlags flags = CellFlag::None;
 
     /// In terminals, the Unicode's East asian Width property is used to determine the
     /// number of columns, a graphical character is spanning.
@@ -105,17 +94,23 @@ class CRISPY_PACKED CompactCell
     [[nodiscard]] char32_t codepoint(size_t i) const noexcept;
     [[nodiscard]] std::size_t codepointCount() const noexcept;
 
+    [[nodiscard]] char32_t operator[](size_t i) const noexcept { return codepoint(i); }
+    [[nodiscard]] size_t size() const noexcept { return codepointCount(); }
+
     [[nodiscard]] constexpr uint8_t width() const noexcept;
     void setWidth(uint8_t width) noexcept;
 
     [[nodiscard]] CellFlags flags() const noexcept;
 
-    [[nodiscard]] bool isFlagEnabled(CellFlags testFlags) const noexcept { return flags() & testFlags; }
+    [[nodiscard]] bool isFlagEnabled(CellFlags testFlags) const noexcept
+    {
+        return flags().contains(testFlags);
+    }
 
     void resetFlags() noexcept
     {
         if (_extra)
-            _extra->flags = CellFlags::None;
+            _extra->flags = CellFlag::None;
     }
 
     void resetFlags(CellFlags flags) noexcept { extra().flags = flags; }
@@ -151,7 +146,7 @@ class CRISPY_PACKED CompactCell
     char32_t _codepoint = 0; /// Primary Unicode codepoint to be displayed.
     Color _foregroundColor = DefaultColor();
     Color _backgroundColor = DefaultColor();
-    crispy::Owned<CellExtra> _extra = {};
+    crispy::owned<CellExtra> _extra = {};
     // TODO(perf) ^^ use CellExtraId = boxed<int24_t> into pre-alloc'ed vector<CellExtra>.
 };
 
@@ -183,7 +178,7 @@ inline CompactCell::CompactCell(GraphicsAttributes attributes, HyperlinkId hyper
     if (attributes.underlineColor != DefaultColor() || _extra)
         extra().underlineColor = attributes.underlineColor;
 
-    if (attributes.flags != CellFlags::None || _extra)
+    if (attributes.flags != CellFlag::None || _extra)
         extra().flags = attributes.flags;
 }
 
@@ -221,7 +216,7 @@ inline void CompactCell::reset(GraphicsAttributes const& attributes) noexcept
     _foregroundColor = attributes.foregroundColor;
     _backgroundColor = attributes.backgroundColor;
     _extra.reset();
-    if (attributes.flags != CellFlags::None)
+    if (attributes.flags != CellFlag::None)
         extra().flags = attributes.flags;
     if (attributes.underlineColor != DefaultColor())
         extra().underlineColor = attributes.underlineColor;
@@ -241,7 +236,7 @@ inline void CompactCell::write(GraphicsAttributes const& attributes, char32_t ch
     _foregroundColor = attributes.foregroundColor;
     _backgroundColor = attributes.backgroundColor;
 
-    if (attributes.flags != CellFlags::None || _extra)
+    if (attributes.flags != CellFlag::None || _extra)
         extra().flags = attributes.flags;
 
     if (attributes.underlineColor != DefaultColor())
@@ -263,7 +258,7 @@ inline void CompactCell::write(GraphicsAttributes const& attributes,
     _foregroundColor = attributes.foregroundColor;
     _backgroundColor = attributes.backgroundColor;
 
-    if (attributes.flags != CellFlags::None || _extra || attributes.underlineColor != DefaultColor()
+    if (attributes.flags != CellFlag::None || _extra || attributes.underlineColor != DefaultColor()
         || !!hyperlink)
     {
         CellExtra& ext = extra();
@@ -290,7 +285,7 @@ inline void CompactCell::reset(GraphicsAttributes const& attributes, HyperlinkId
     _extra.reset();
     if (attributes.underlineColor != DefaultColor())
         extra().underlineColor = attributes.underlineColor;
-    if (attributes.flags != CellFlags::None)
+    if (attributes.flags != CellFlag::None)
         extra().flags = attributes.flags;
     if (hyperlink != HyperlinkId())
         extra().hyperlink = hyperlink;
@@ -321,7 +316,7 @@ inline void CompactCell::setCharacter(char32_t codepoint) noexcept
         _extra->imageFragment = {};
     }
     if (codepoint)
-        setWidth(static_cast<uint8_t>(std::max(unicode::width(codepoint), 1)));
+        setWidth(std::max<uint8_t>(unicode::width(codepoint), 1));
     else
         setWidth(1);
 }
@@ -382,7 +377,7 @@ inline CellExtra& CompactCell::extra() noexcept
 inline CellFlags CompactCell::flags() const noexcept
 {
     if (!_extra)
-        return CellFlags::None;
+        return CellFlag::None;
     else
         return const_cast<CompactCell*>(this)->_extra->flags;
 }
@@ -484,29 +479,21 @@ inline bool beginsWith(std::u32string_view text, CompactCell const& cell) noexce
 }
 // }}}
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
 template <>
-struct formatter<terminal::CompactCell>
+struct std::formatter<vtbackend::CompactCell>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
-    {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::CompactCell const& cell, FormatContext& ctx)
+    auto format(vtbackend::CompactCell const& cell, auto& ctx) const
     {
         std::string codepoints;
         for (auto const i: crispy::times(cell.codepointCount()))
         {
             if (i)
                 codepoints += ", ";
-            codepoints += fmt::format("{:02X}", static_cast<unsigned>(cell.codepoint(i)));
+            codepoints += std::format("{:02X}", static_cast<unsigned>(cell.codepoint(i)));
         }
-        return fmt::format_to(ctx.out(), "(chars={}, width={})", codepoints, cell.width());
+        return formatter<std::string>::format(std::format("(chars={}, width={})", codepoints, cell.width()),
+                                              ctx);
     }
 };
-} // namespace fmt

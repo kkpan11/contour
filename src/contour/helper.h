@@ -1,22 +1,9 @@
-/**
- * This file is part of the "contour" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <contour/Config.h>
 
 #include <vtbackend/InputGenerator.h>
-#include <vtbackend/ScreenEvents.h>
 
 #include <vtrasterizer/GridMetrics.h>
 
@@ -26,14 +13,15 @@
 #include <QtCore/Qt>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QScreen>
-#include <QtWidgets/QWidget>
+#include <QtQml/QQmlApplicationEngine>
+#include <QtQuick/QQuickWindow>
 
 #include <cctype>
 #include <map>
 #include <string>
 #include <string_view>
 
-namespace terminal::rasterizer
+namespace vtrasterizer
 {
 class Renderer;
 }
@@ -41,29 +29,29 @@ class Renderer;
 namespace contour
 {
 
-auto inline const DisplayLog =
-    logstore::Category("gui.display", "Logs display driver details (e.g. OpenGL).");
-auto inline const InputLog =
-    logstore::Category("gui.input", "Logs input driver details (e.g. GUI input events).");
-auto inline const SessionLog = logstore::Category("gui.session", "VT terminal session logs");
-
+auto inline const displayLog =
+    logstore::category("gui.display", "Logs display driver details (e.g. OpenGL).");
+auto inline const inputLog =
+    logstore::category("gui.input", "Logs input driver details (e.g. GUI input events).");
+auto inline const sessionLog = logstore::category("gui.session", "VT terminal session logs");
+auto inline const managerLog = logstore::category("gui.session_manager", "Sessions manager logs");
 namespace detail
 {
     template <typename F>
     class FunctionCallEvent: public QEvent
     {
       private:
-        using Fun = typename std::decay<F>::type;
-        Fun fun;
+        using Fun = std::decay_t<F>;
+        Fun _fun;
 
       public:
-        FunctionCallEvent(Fun&& fun): QEvent(QEvent::None), fun(std::move(fun)) {}
-        FunctionCallEvent(Fun const& fun): QEvent(QEvent::None), fun(fun) {}
-        ~FunctionCallEvent() override { fun(); }
+        FunctionCallEvent(Fun&& fun): QEvent(QEvent::None), _fun(std::move(fun)) {}
+        FunctionCallEvent(Fun const& fun): QEvent(QEvent::None), _fun(fun) {}
+        ~FunctionCallEvent() override { _fun(); }
     };
 } // namespace detail
 
-enum class MouseCursorShape
+enum class MouseCursorShape : uint8_t
 {
     Hidden,
     PointingHand,
@@ -83,11 +71,9 @@ void postToObject(QObject* obj, F fun)
 #endif
 }
 
-QScreen* screenOf(QWidget const* _widget);
-
-constexpr inline bool isModifier(Qt::Key _key)
+constexpr inline bool isModifier(Qt::Key key)
 {
-    switch (_key)
+    switch (key)
     {
         case Qt::Key_Alt:
         case Qt::Key_Control:
@@ -97,12 +83,12 @@ constexpr inline bool isModifier(Qt::Key _key)
     }
 }
 
-constexpr inline char32_t makeChar(Qt::Key _key, Qt::KeyboardModifiers _mods)
+constexpr inline char32_t makeChar(Qt::Key key, Qt::KeyboardModifiers mods)
 {
-    auto const value = static_cast<int>(_key);
+    auto const value = static_cast<int>(key);
     if (value >= 'A' && value <= 'Z')
     {
-        if (_mods & Qt::ShiftModifier)
+        if (mods & Qt::ShiftModifier)
             return static_cast<char32_t>(value);
         else
             return static_cast<char32_t>(std::tolower(value));
@@ -110,95 +96,110 @@ constexpr inline char32_t makeChar(Qt::Key _key, Qt::KeyboardModifiers _mods)
     return 0;
 }
 
-constexpr inline terminal::Modifier makeModifier(Qt::KeyboardModifiers _mods)
+constexpr inline vtbackend::Modifiers makeModifiers(Qt::KeyboardModifiers qtModifiers)
 {
-    using terminal::Modifier;
+    using vtbackend::Modifier;
+    using vtbackend::Modifiers;
 
-    Modifier mods {};
+    Modifiers modifiers {};
 
-    if (_mods & Qt::AltModifier)
-        mods |= Modifier::Alt;
-    if (_mods & Qt::ShiftModifier)
-        mods |= Modifier::Shift;
-#if defined(__APPLE__)
-    // XXX https://doc.qt.io/qt-5/qt.html#KeyboardModifier-enum
-    //     "Note: On macOS, the ControlModifier value corresponds to the Command keys on the keyboard,
-    //      and the MetaModifier value corresponds to the Control keys."
-    if (_mods & Qt::MetaModifier)
-        mods |= Modifier::Control;
-    if (_mods & Qt::ControlModifier)
-        mods |= Modifier::Meta;
-#else
-    if (_mods & Qt::ControlModifier)
-        mods |= Modifier::Control;
-    if (_mods & Qt::MetaModifier)
-        mods |= Modifier::Meta;
+    // TODO: Can we safely enable this? Especially with respect to CSIu?
+    // if (qtModifiers & Qt::KeypadModifier)
+    //     modifiers |= Modifier::NumLock;
+
+    if (qtModifiers & Qt::AltModifier)
+        modifiers |= Modifier::Alt;
+    if (qtModifiers & Qt::ShiftModifier)
+        modifiers |= Modifier::Shift;
+    if (qtModifiers & Qt::ControlModifier)
+        modifiers |= Modifier::Control;
+    if (qtModifiers & Qt::MetaModifier)
+        modifiers |= Modifier::Super;
+
+#if defined(_WIN32)
+    // Deal with AltGr on Windows, which is seen by the app as Ctrl+Alt, because
+    // the user may alternatively press Ctrl+Alt to emulate AltGr on keyboard
+    // that are missing the AltGr key.
+    // Microsoft does not recommend using Ctrl+Alt modifier for shortcuts.
+    auto constexpr AltGrEquivalent = Modifiers { Modifier::Alt, Modifier::Control };
+    if (modifiers.contains(AltGrEquivalent))
+        modifiers = modifiers.without(AltGrEquivalent);
 #endif
 
-    return mods;
+    return modifiers;
 }
 
-constexpr inline terminal::MouseButton makeMouseButton(Qt::MouseButton _button)
+constexpr inline vtbackend::MouseButton makeMouseButton(Qt::MouseButton button)
 {
-    switch (_button)
+    switch (button)
     {
-        case Qt::MouseButton::RightButton: return terminal::MouseButton::Right;
-        case Qt::MiddleButton: return terminal::MouseButton::Middle;
+        case Qt::MouseButton::RightButton: return vtbackend::MouseButton::Right;
+        case Qt::MiddleButton: return vtbackend::MouseButton::Middle;
         case Qt::LeftButton: [[fallthrough]];
         default: // d'oh
-            return terminal::MouseButton::Left;
+            return vtbackend::MouseButton::Left;
     }
 }
 
 class TerminalSession;
-bool sendKeyEvent(QKeyEvent* _keyEvent, TerminalSession& _session);
-void sendWheelEvent(QWheelEvent* _event, TerminalSession& _session);
-void sendMousePressEvent(QMouseEvent* _event, TerminalSession& _session);
-void sendMouseMoveEvent(QMouseEvent* _event, TerminalSession& _session);
-void sendMouseReleaseEvent(QMouseEvent* _event, TerminalSession& _session);
+bool sendKeyEvent(QKeyEvent* keyEvent, vtbackend::KeyboardEventType eventType, TerminalSession& session);
+void sendWheelEvent(QWheelEvent* event, TerminalSession& session);
+void sendMousePressEvent(QMouseEvent* event, TerminalSession& session);
+void sendMouseMoveEvent(QMouseEvent* event, TerminalSession& session);
+void sendMouseMoveEvent(QHoverEvent* event, TerminalSession& session);
+void sendMouseReleaseEvent(QMouseEvent* event, TerminalSession& session);
 
-void spawnNewTerminal(std::string const& _programPath,
-                      std::string const& _configPath,
-                      std::string const& _profileName,
-                      std::string const& _cwdUrl);
+void spawnNewTerminal(std::string const& programPath,
+                      std::string const& configPath,
+                      std::string const& profileName,
+                      std::string const& cwdUrl);
 
-using PermissionCache = std::map<std::string, bool>;
+vtbackend::FontDef getFontDefinition(vtrasterizer::Renderer& renderer);
 
-bool requestPermission(PermissionCache& _cache,
-                       QWidget* _parent,
-                       config::Permission _allowedByConfig,
-                       std::string const& _topicText);
-
-terminal::FontDef getFontDefinition(terminal::rasterizer::Renderer& _renderer);
-
-terminal::rasterizer::PageMargin computeMargin(terminal::ImageSize _cellSize,
-                                               terminal::PageSize _charCells,
-                                               terminal::ImageSize _pixels) noexcept;
-
-terminal::rasterizer::FontDescriptions sanitizeFontDescription(terminal::rasterizer::FontDescriptions _fonts,
-                                                               text::DPI _screenDPI);
-
-constexpr terminal::PageSize pageSizeForPixels(crispy::ImageSize viewSize,
-                                               crispy::ImageSize cellSize) noexcept
+constexpr config::WindowMargins applyContentScale(config::WindowMargins margins, double contentScale) noexcept
 {
-    return terminal::PageSize { boxed_cast<terminal::LineCount>((viewSize / cellSize).height),
-                                boxed_cast<terminal::ColumnCount>((viewSize / cellSize).width) };
+    return { .horizontal =
+                 config::HorizontalMargin(static_cast<int>(unbox(margins.horizontal) * contentScale)),
+             .vertical = config::VerticalMargin(static_cast<int>(unbox(margins.vertical) * contentScale)) };
 }
 
-void applyResize(terminal::ImageSize _newPixelSize,
-                 TerminalSession& _session,
-                 terminal::rasterizer::Renderer& _renderer);
+vtrasterizer::PageMargin computeMargin(vtbackend::ImageSize cellSize,
+                                       vtbackend::PageSize charCells,
+                                       vtbackend::ImageSize displaySize,
+                                       config::WindowMargins minimumMargins) noexcept;
 
-bool applyFontDescription(terminal::ImageSize _cellSize,
-                          terminal::PageSize _pageSize,
-                          terminal::ImageSize _pixelSize,
-                          text::DPI _dpi,
-                          terminal::rasterizer::Renderer& _renderer,
-                          terminal::rasterizer::FontDescriptions _fontDescriptions);
+vtrasterizer::FontDescriptions sanitizeFontDescription(vtrasterizer::FontDescriptions fonts,
+                                                       text::DPI screenDPI);
 
-constexpr Qt::CursorShape toQtMouseShape(MouseCursorShape _shape)
+constexpr vtbackend::PageSize pageSizeForPixels(vtbackend::ImageSize totalViewSize,
+                                                vtbackend::ImageSize cellSize,
+                                                config::WindowMargins margins)
 {
-    switch (_shape)
+    // NB: Multiplied by 2, because margins are applied on both sides of the terminal.
+    auto const marginSize =
+        vtbackend::ImageSize { vtbackend::Width::cast_from(2 * unbox(margins.horizontal)),
+                               vtbackend::Height::cast_from(2 * unbox(margins.vertical)) };
+
+    auto const usableViewSize = totalViewSize - marginSize;
+
+    auto const result =
+        vtbackend::PageSize { boxed_cast<vtbackend::LineCount>((usableViewSize / cellSize).height),
+                              boxed_cast<vtbackend::ColumnCount>((usableViewSize / cellSize).width) };
+
+    return result;
+}
+
+void applyResize(vtbackend::ImageSize newPixelSize,
+                 TerminalSession& session,
+                 vtrasterizer::Renderer& renderer);
+
+bool applyFontDescription(text::DPI dpi,
+                          vtrasterizer::Renderer& renderer,
+                          vtrasterizer::FontDescriptions fontDescriptions);
+
+constexpr Qt::CursorShape toQtMouseShape(MouseCursorShape shape)
+{
+    switch (shape)
     {
         case contour::MouseCursorShape::Hidden: return Qt::CursorShape::BlankCursor;
         case contour::MouseCursorShape::Arrow: return Qt::CursorShape::ArrowCursor;
@@ -211,7 +212,7 @@ constexpr Qt::CursorShape toQtMouseShape(MouseCursorShape _shape)
 }
 
 /// Declares the screen-dirtiness-vs-rendering state.
-enum class RenderState
+enum class RenderState : uint8_t
 {
     CleanIdle,     //!< No screen updates and no rendering currently in progress.
     DirtyIdle,     //!< Screen updates pending and no rendering currently in progress.
@@ -232,24 +233,24 @@ enum class RenderState
 /// either DirtyIdle if no painting is currently in progress, DirtyPainting otherwise.
 struct RenderStateManager
 {
-    std::atomic<RenderState> state_ = RenderState::CleanIdle;
-    bool renderingPressure_ = false;
+    std::atomic<RenderState> state = RenderState::CleanIdle;
+    bool renderingPressure = false;
 
-    RenderState fetchAndClear() { return state_.exchange(RenderState::CleanPainting); }
+    RenderState fetchAndClear() { return state.exchange(RenderState::CleanPainting); }
 
     bool touch()
     {
         for (;;)
         {
-            auto state = state_.load();
-            switch (state)
+            auto stateTmp = state.load();
+            switch (stateTmp)
             {
                 case RenderState::CleanIdle:
-                    if (state_.compare_exchange_strong(state, RenderState::DirtyIdle))
+                    if (state.compare_exchange_strong(stateTmp, RenderState::DirtyIdle))
                         return true;
                     break;
                 case RenderState::CleanPainting:
-                    if (state_.compare_exchange_strong(state, RenderState::DirtyPainting))
+                    if (state.compare_exchange_strong(stateTmp, RenderState::DirtyPainting))
                         return false;
                     break;
                 case RenderState::DirtyIdle:
@@ -264,8 +265,8 @@ struct RenderStateManager
     {
         for (;;)
         {
-            auto state = state_.load();
-            switch (state)
+            auto stateTmp = state.load();
+            switch (stateTmp)
             {
                 case RenderState::DirtyIdle:
                     // assert(!"The impossible happened, painting but painting. Shakesbeer.");
@@ -274,48 +275,52 @@ struct RenderStateManager
                     [[fallthrough]];
                 case RenderState::DirtyPainting: return false;
                 case RenderState::CleanPainting:
-                    if (!state_.compare_exchange_strong(state, RenderState::CleanIdle))
+                    if (!state.compare_exchange_strong(stateTmp, RenderState::CleanIdle))
                         break;
                     [[fallthrough]];
-                case RenderState::CleanIdle: renderingPressure_ = false; return true;
+                case RenderState::CleanIdle: renderingPressure = false; return true;
             }
         }
     }
 };
 
-#define CHECKED_GL(code)                                              \
-    do                                                                \
-    {                                                                 \
-        (code);                                                       \
-        GLenum err {};                                                \
-        while ((err = glGetError()) != GL_NO_ERROR)                   \
-            DisplayLog()("OpenGL error {} for call: {}", err, #code); \
+#define CONSUME_GL_ERRORS()                                                       \
+    do                                                                            \
+    {                                                                             \
+        GLenum err {};                                                            \
+        while ((err = glGetError()) != GL_NO_ERROR)                               \
+            errorLog()("Ignoring GL error {} in {}:{}", err, __FILE__, __LINE__); \
     } while (0)
+
+#define CHECKED_GL(code)                                            \
+    [&]() -> bool {                                                 \
+        (code);                                                     \
+        GLenum err {};                                              \
+        int fails = 0;                                              \
+        while ((err = glGetError()) != GL_NO_ERROR)                 \
+        {                                                           \
+            errorLog()("OpenGL error {} for call: {}", err, #code); \
+            fails++;                                                \
+        }                                                           \
+        return fails == 0;                                          \
+    }()
 
 } // namespace contour
 
-namespace fmt
-{
 template <>
-struct formatter<contour::RenderState>
+struct std::formatter<contour::RenderState>: std::formatter<string_view>
 {
     using State = contour::RenderState;
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(State state, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(State state, FormatContext& ctx)
-    {
+        string_view name;
         switch (state)
         {
-            case State::CleanIdle: return fmt::format_to(ctx.out(), "clean-idle");
-            case State::CleanPainting: return fmt::format_to(ctx.out(), "clean-painting");
-            case State::DirtyIdle: return fmt::format_to(ctx.out(), "dirty-idle");
-            case State::DirtyPainting: return fmt::format_to(ctx.out(), "dirty-painting");
+            case State::CleanIdle: name = "clean-idle"; break;
+            case State::CleanPainting: name = "clean-painting"; break;
+            case State::DirtyIdle: name = "dirty-idle"; break;
+            case State::DirtyPainting: name = "dirty-painting"; break;
         }
-        return fmt::format_to(ctx.out(), "Invalid");
+        return std::formatter<string_view>::format(name, ctx);
     }
 };
-} // namespace fmt

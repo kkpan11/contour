@@ -1,25 +1,13 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtpty/Pty.h>
 
+#include <crispy/BufferObject.h>
 #include <crispy/overloaded.h>
-#include <crispy/stdfs.h>
 
-#include <fmt/format.h>
-
+#include <filesystem>
+#include <format>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,7 +15,7 @@
 #include <variant>
 #include <vector>
 
-namespace terminal
+namespace vtpty
 {
 
 /**
@@ -48,24 +36,24 @@ class [[nodiscard]] Process: public Pty
     {
         std::string program;
         std::vector<std::string> arguments;
-        FileSystem::path workingDirectory;
+        std::filesystem::path workingDirectory;
         Environment env;
-        bool escapeSandbox = true;
     };
 
     //! Returns login shell of current user.
     static std::vector<std::string> loginShell(bool escapeSandbox);
 
-    static FileSystem::path homeDirectory();
+    static std::string userName();
+    static std::filesystem::path homeDirectory();
 
-    Process(ExecInfo const& exe, std::unique_ptr<Pty> pty):
-        Process(exe.program, exe.arguments, exe.workingDirectory, exe.env, exe.escapeSandbox, std::move(pty))
+    Process(ExecInfo const& exe, std::unique_ptr<Pty> pty, bool escapeSandbox):
+        Process(exe.program, exe.arguments, exe.workingDirectory, exe.env, escapeSandbox, std::move(pty))
     {
     }
 
     Process(const std::string& path,
             std::vector<std::string> const& args,
-            FileSystem::path const& cwd,
+            std::filesystem::path const& cwd,
             Environment const& env,
             bool escapeSandbox,
             std::unique_ptr<Pty> pty);
@@ -88,7 +76,7 @@ class [[nodiscard]] Process: public Pty
 
     [[nodiscard]] std::string workingDirectory() const;
 
-    enum class TerminationHint
+    enum class TerminationHint : uint8_t
     {
         Normal,
         Hangup
@@ -103,12 +91,13 @@ class [[nodiscard]] Process: public Pty
     void start() override;
     [[nodiscard]] PtySlave& slave() noexcept override { return pty().slave(); }
     void close() override { pty().close(); }
+    void waitForClosed() override;
     [[nodiscard]] bool isClosed() const noexcept override { return pty().isClosed(); }
-    [[nodiscard]] ReadResult read(crispy::BufferObject<char>& storage, std::chrono::milliseconds timeout, size_t n) override { return pty().read(storage, timeout, n); }
-    void wakeupReader() override { return pty().wakeupReader(); }
-    [[nodiscard]] int write(char const* buf, size_t size) override { return pty().write(buf, size); }
+    [[nodiscard]] std::optional<ReadResult> read(crispy::buffer_object<char>& storage, std::optional<std::chrono::milliseconds> timeout, size_t n) override { return pty().read(storage, timeout, n); }
+    void wakeupReader() override { pty().wakeupReader(); }
+    [[nodiscard]] int write(std::string_view data) override { return pty().write(data); }
     [[nodiscard]] PageSize pageSize() const noexcept override { return pty().pageSize(); }
-    void resizeScreen(PageSize cells, std::optional<crispy::ImageSize> pixels = std::nullopt) override { pty().resizeScreen(cells, pixels); }
+    void resizeScreen(PageSize cells, std::optional<ImageSize> pixels = std::nullopt) override { pty().resizeScreen(cells, pixels); }
     // clang-format on
 
   private:
@@ -116,38 +105,29 @@ class [[nodiscard]] Process: public Pty
     std::unique_ptr<Private, void (*)(Private*)> _d;
 };
 
-} // namespace terminal
+} // namespace vtpty
 
-namespace fmt
-{
 template <>
-struct formatter<terminal::Process::ExitStatus>
+struct std::formatter<vtpty::Process::ExitStatus>: std::formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtpty::Process::ExitStatus const& status, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::Process::ExitStatus const& status, FormatContext& ctx)
-    {
-        return std::visit(overloaded { [&](terminal::Process::NormalExit exit) {
-                                          return fmt::format_to(ctx.out(), "{} (normal exit)", exit.exitCode);
-                                      },
-                                       [&](terminal::Process::SignalExit exit) {
-                                           char buf[256];
+        auto const text =
+            std::visit(overloaded { [&](vtpty::Process::NormalExit exit) {
+                                       return std::format("{} (normal exit)", exit.exitCode);
+                                   },
+                                    [&](vtpty::Process::SignalExit exit) {
+                                        char buf[256];
 #if defined(_WIN32)
-                                           strerror_s(buf, sizeof(buf), errno);
-                                           return fmt::format_to(
-                                               ctx.out(), "{} (signal number {})", buf, exit.signum);
+                                        strerror_s(buf, sizeof(buf), errno);
+                                        return std::format("{} (signal number {})", buf, exit.signum);
 #else
-                                           return fmt::format_to(ctx.out(),
-                                                                 "{} (signal number {})",
-                                                                 strerror_r(errno, buf, sizeof(buf)),
-                                                                 exit.signum);
+                                        return std::format("{} (signal number {})",
+                                                           strerror_r(errno, buf, sizeof(buf)),
+                                                           exit.signum);
 #endif
-                                       } },
-                          status);
+                                    } },
+                       status);
+        return std::formatter<std::string>::format(text, ctx);
     }
 };
-} // namespace fmt

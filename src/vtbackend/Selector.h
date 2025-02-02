@@ -1,16 +1,4 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <vtbackend/InputGenerator.h>
@@ -20,20 +8,19 @@
 #include <crispy/times.h>
 #include <crispy/utils.h>
 
-#include <fmt/format.h>
-
+#include <format>
 #include <functional>
 #include <utility>
 #include <vector>
 
-namespace terminal
+namespace vtbackend
 {
 
 struct SelectionHelper
 {
     virtual ~SelectionHelper() = default;
+    std::function<bool(CellLocation)> wordDelimited;
     [[nodiscard]] virtual PageSize pageSize() const noexcept = 0;
-    [[nodiscard]] virtual bool wordDelimited(CellLocation pos) const noexcept = 0;
     [[nodiscard]] virtual bool wrappedLine(LineOffset line) const noexcept = 0;
     [[nodiscard]] virtual bool cellEmpty(CellLocation pos) const noexcept = 0;
     [[nodiscard]] virtual int cellWidth(CellLocation pos) const noexcept = 0;
@@ -65,7 +52,7 @@ struct SelectionHelper
 class Selection
 {
   public:
-    enum class State
+    enum class State : uint8_t
     {
         /// Inactive, but waiting for the selection to be started (by moving the cursor).
         Waiting,
@@ -187,59 +174,53 @@ void renderSelection(Selection const& selection, Renderer&& render)
 {
     for (Selection::Range const& range: selection.ranges())
         for (auto const col: crispy::times(*range.fromColumn, *range.length()))
-            render(CellLocation { range.line, ColumnOffset::cast_from(col) });
+            std::forward<Renderer>(render)(CellLocation { range.line, ColumnOffset::cast_from(col) });
 }
 // }}}
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt // {{{
-{
+// {{{ fmtlib custom formatter support
 template <>
-struct formatter<terminal::Selection::State>
+struct std::formatter<vtbackend::Selection::State>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    using State = vtbackend::Selection::State;
+    auto format(State state, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    using State = terminal::Selection::State;
-    template <typename FormatContext>
-    auto format(State state, FormatContext& ctx)
-    {
+        string_view name;
         switch (state)
         {
-            case State::Waiting: return fmt::format_to(ctx.out(), "Waiting");
-            case State::InProgress: return fmt::format_to(ctx.out(), "InProgress");
-            case State::Complete: return fmt::format_to(ctx.out(), "Complete");
+            case State::Waiting: name = "Waiting"; break;
+            case State::InProgress: name = "InProgress"; break;
+            case State::Complete: name = "Complete"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", static_cast<unsigned>(state));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::Selection>
+struct std::formatter<vtbackend::Selection>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(const vtbackend::Selection& selector, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(const terminal::Selection& selector, FormatContext& ctx)
-    {
-        return fmt::format_to(
-            ctx.out(),
-            "{}({} from {} to {})",
-            dynamic_cast<terminal::WordWiseSelection const*>(&selector)      ? "WordWiseSelection"
-            : dynamic_cast<terminal::FullLineSelection const*>(&selector)    ? "FullLineSelection"
-            : dynamic_cast<terminal::RectangularSelection const*>(&selector) ? "RectangularSelection"
-            : dynamic_cast<terminal::LinearSelection const*>(&selector)      ? "LinearSelection"
-                                                                             : "Selection",
-            selector.state(),
-            selector.from(),
-            selector.to());
+        return formatter<std::string>::format(
+            std::format(
+                "{}({} from {} to {})",
+                [](auto const* selector) -> std::string_view {
+                    if (dynamic_cast<vtbackend::WordWiseSelection const*>(selector))
+                        return "WordWiseSelection";
+                    if (dynamic_cast<vtbackend::FullLineSelection const*>(selector))
+                        return "FullLineSelection";
+                    if (dynamic_cast<vtbackend::RectangularSelection const*>(selector))
+                        return "RectangularSelection";
+                    if (dynamic_cast<vtbackend::LinearSelection const*>(selector))
+                        return "LinearSelection";
+                    return "Selection";
+                }(&selector),
+                selector.state(),
+                selector.from(),
+                selector.to()),
+            ctx);
     }
 };
-} // namespace fmt
+// }}}

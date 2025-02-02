@@ -1,23 +1,10 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <fmt/format.h>
-
 #include <cstdint>
+#include <format>
 
-namespace terminal
+namespace vtbackend
 {
 
 class MatchModes
@@ -35,7 +22,7 @@ class MatchModes
         Trace = 0x40,
     };
 
-    enum class Status
+    enum class Status : uint8_t
     {
         Any,
         Enabled,
@@ -116,43 +103,35 @@ constexpr bool operator!=(MatchModes a, MatchModes b) noexcept
     return !(a == b);
 }
 
-} // namespace terminal
+} // namespace vtbackend
 
-namespace fmt
-{ // {{{
+// {{{ fmtlib support
 template <>
-struct formatter<terminal::MatchModes>
+struct std::formatter<vtbackend::MatchModes>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
-    {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::MatchModes m, FormatContext& ctx)
+    auto format(vtbackend::MatchModes m, auto& ctx) const
     {
         std::string s;
-        auto const advance = [&](terminal::MatchModes::Flag cond, std::string_view text) {
+        auto const advance = [&](vtbackend::MatchModes::Flag cond, std::string_view text) {
             auto const status = m.status(cond);
-            if (status == terminal::MatchModes::Status::Any)
+            if (status == vtbackend::MatchModes::Status::Any)
                 return;
             if (!s.empty())
                 s += '|';
-            if (status == terminal::MatchModes::Status::Disabled)
+            if (status == vtbackend::MatchModes::Status::Disabled)
                 s += "~";
             s += text;
         };
-        advance(terminal::MatchModes::AppCursor, "AppCursor");
-        advance(terminal::MatchModes::AppKeypad, "AppKeypad");
-        advance(terminal::MatchModes::AlternateScreen, "AltScreen");
-        advance(terminal::MatchModes::Insert, "Insert");
-        advance(terminal::MatchModes::Select, "Select");
-        advance(terminal::MatchModes::Search, "Search");
-        advance(terminal::MatchModes::Trace, "Trace");
+        advance(vtbackend::MatchModes::AppCursor, "AppCursor");
+        advance(vtbackend::MatchModes::AppKeypad, "AppKeypad");
+        advance(vtbackend::MatchModes::AlternateScreen, "AltScreen");
+        advance(vtbackend::MatchModes::Insert, "Insert");
+        advance(vtbackend::MatchModes::Select, "Select");
+        advance(vtbackend::MatchModes::Search, "Search");
+        advance(vtbackend::MatchModes::Trace, "Trace");
         if (s.empty())
             s = "Any";
-        return fmt::format_to(ctx.out(), "{}", s);
+        return formatter<std::string>::format(s, ctx);
     }
 };
-} // namespace fmt
 // }}}

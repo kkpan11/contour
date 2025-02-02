@@ -1,36 +1,37 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <vtpty/ImageSize.h>
 #include <vtpty/PageSize.h>
 
-#include <crispy/ImageSize.h>
-#include <crispy/boxed.h>
-
-#include <cassert>
 #include <cstdint>
 #include <limits>
 #include <ostream>
-#include <type_traits>
+#include <string>
 #include <variant>
+
+#include <boxed-cpp/boxed.hpp>
 
 // TODO
 // - [ ] rename all History to Scrollback
 // - [ ] make sense out of all the semantically different line primitives.
 
-namespace terminal
+namespace vtbackend
 {
+
+struct FontDef
+{
+    double size;
+    std::string regular;
+    std::string bold;
+    std::string italic;
+    std::string boldItalic;
+    std::string emoji;
+};
+
+using LineCount = vtpty::LineCount;
+using ColumnCount = vtpty::ColumnCount;
+using PageSize = vtpty::PageSize;
 
 namespace detail::tags // {{{
 {
@@ -68,9 +69,9 @@ namespace detail::tags // {{{
 /// (usually the main page unless scrolled upwards).
 ///
 /// A column position starts at 1.
-using ColumnPosition = crispy::boxed<int, detail::tags::ColumnPosition>;
+using ColumnPosition = boxed::boxed<int, detail::tags::ColumnPosition>;
 
-using ColumnOffset = crispy::boxed<int, detail::tags::ColumnOffset>;
+using ColumnOffset = boxed::boxed<int, detail::tags::ColumnOffset>;
 
 // }}}
 // {{{ Line types
@@ -86,7 +87,7 @@ using MaxHistoryLineCount = std::variant<LineCount, Infinite>;
 ///
 /// *  0  is top-most line on main page
 /// *  -1 is the bottom most line in scrollback
-using LineOffset = crispy::boxed<int, detail::tags::LineOffset>;
+using LineOffset = boxed::boxed<int, detail::tags::LineOffset>;
 
 /// Represents the number of lines the viewport has been scrolled up into
 /// the scrollback lines history.
@@ -94,7 +95,7 @@ using LineOffset = crispy::boxed<int, detail::tags::LineOffset>;
 /// A value of 0 means that it is not scrolled at all (bottom), and
 /// a value equal to the number of scrollback lines means it is scrolled
 /// to the top.
-using ScrollOffset = crispy::boxed<int, detail::tags::ScrollOffset>;
+using ScrollOffset = boxed::boxed<int, detail::tags::ScrollOffset>;
 
 constexpr int operator*(LineCount a, ColumnCount b) noexcept
 {
@@ -117,6 +118,7 @@ struct PixelCoordinate
     Y y {};
 };
 
+// {{{ CellLocation and related types
 struct [[nodiscard]] CellLocation
 {
     LineOffset line {};
@@ -139,46 +141,13 @@ struct [[nodiscard]] CellLocation
         line += y;
         return *this;
     }
+
+    constexpr auto operator<=>(CellLocation const&) const noexcept = default;
 };
 
 inline std::ostream& operator<<(std::ostream& os, CellLocation coord)
 {
-    return os << fmt::format("({}, {})", coord.line, coord.column);
-}
-
-constexpr bool operator==(CellLocation a, CellLocation b) noexcept
-{
-    return a.line == b.line && a.column == b.column;
-}
-constexpr bool operator!=(CellLocation a, CellLocation b) noexcept
-{
-    return !(a == b);
-}
-
-constexpr bool operator<(CellLocation a, CellLocation b) noexcept
-{
-    if (a.line < b.line)
-        return true;
-
-    if (a.line == b.line && a.column < b.column)
-        return true;
-
-    return false;
-}
-
-constexpr bool operator<=(CellLocation a, CellLocation b) noexcept
-{
-    return a < b || a == b;
-}
-
-constexpr bool operator>=(CellLocation a, CellLocation b) noexcept
-{
-    return !(a < b);
-}
-
-constexpr bool operator>(CellLocation a, CellLocation b) noexcept
-{
-    return !(a == b || a < b);
+    return os << std::format("({}, {})", coord.line, coord.column);
 }
 
 inline CellLocation operator+(CellLocation a, CellLocation b) noexcept
@@ -227,7 +196,7 @@ struct CellLocationRange
 
     [[nodiscard]] bool contains(CellLocation location) const noexcept
     {
-        switch (abs(unbox<int>(first.line) - unbox<int>(second.line)))
+        switch (abs(unbox(first.line) - unbox(second.line)))
         {
             case 0: // range is single line
                 return location.line == first.line && first.column <= location.column
@@ -261,15 +230,14 @@ struct ColumnRange
         return line == location.line && fromColumn <= location.column && location.column <= toColumn;
     }
 };
-
 // }}}
 // {{{ Range
 
 /// Represents the first value of a range.
-using From = crispy::boxed<int, detail::tags::From>;
+using From = boxed::boxed<int, detail::tags::From>;
 
 /// Represents the last value of a range (inclusive).
-using To = crispy::boxed<int, detail::tags::To>;
+using To = boxed::boxed<int, detail::tags::To>;
 
 // Range (e.g. a range of lines from X to Y).
 struct Range
@@ -281,10 +249,10 @@ struct Range
     struct ValueTag
     {
     };
-    using iterator = crispy::boxed<int, ValueTag>;
+    using iterator = boxed::boxed<int, ValueTag>;
     [[nodiscard]] iterator begin() const { return iterator { from.value }; }
     [[nodiscard]] auto end() const { return iterator { to.value + 1 }; }
-    // iterator end() const { return crispy::boxed_cast<iterator>(to) + iterator{1}; }
+    // iterator end() const { return boxed::boxed_cast<iterator>(to) + iterator{1}; }
 };
 
 // }}}
@@ -292,10 +260,10 @@ struct Range
 
 // Rectangular operations
 //
-using Top = crispy::boxed<int, detail::tags::Top>;
-using Left = crispy::boxed<int, detail::tags::Left>;
-using Bottom = crispy::boxed<int, detail::tags::Bottom>;
-using Right = crispy::boxed<int, detail::tags::Right>;
+using Top = boxed::boxed<int, detail::tags::Top>;
+using Left = boxed::boxed<int, detail::tags::Left>;
+using Bottom = boxed::boxed<int, detail::tags::Bottom>;
+using Right = boxed::boxed<int, detail::tags::Right>;
 
 // Rectangular screen operations
 //
@@ -338,7 +306,7 @@ constexpr Range vertical(PageMargin m) noexcept
 // {{{ Length
 
 // Lengths and Ranges
-using Length = crispy::boxed<int, detail::tags::Length>;
+using Length = boxed::boxed<int, detail::tags::Length>;
 
 // }}}
 // {{{ Coordinate types
@@ -397,12 +365,15 @@ struct GridSize
 
         constexpr Offset makeOffset(int offset) noexcept
         {
-            return Offset { LineOffset(offset / *_width), ColumnOffset(offset % *_width) };
+            return Offset { LineOffset(offset / unbox(_width)), ColumnOffset(offset % unbox(_width)) };
         }
     };
 
     [[nodiscard]] constexpr iterator begin() const noexcept { return iterator { columns, 0 }; }
-    [[nodiscard]] constexpr iterator end() const noexcept { return iterator { columns, *columns * *lines }; }
+    [[nodiscard]] constexpr iterator end() const noexcept
+    {
+        return iterator { columns, unbox(columns) * unbox(lines) };
+    }
 };
 
 constexpr CellLocation operator+(CellLocation a, GridSize::Offset b) noexcept
@@ -421,7 +392,7 @@ constexpr GridSize::iterator end(GridSize const& s) noexcept
 // }}}
 // {{{ misc
 
-using TabStopCount = crispy::boxed<int, detail::tags::TabStopCount>;
+using TabStopCount = boxed::boxed<int, detail::tags::TabStopCount>;
 
 // }}}
 // {{{ convenience methods
@@ -435,9 +406,9 @@ constexpr Length length(Range range) noexcept
 // }}}
 // {{{ ImageSize types
 
-using Width = crispy::Width;
-using Height = crispy::Height;
-using ImageSize = crispy::ImageSize;
+using Width = vtpty::Width;
+using Height = vtpty::Height;
+using ImageSize = vtpty::ImageSize;
 
 // }}}
 // {{{ Mixed boxed types operator overloads
@@ -480,20 +451,20 @@ constexpr ColumnOffset& operator-=(ColumnOffset& a, ColumnCount b) noexcept
 }
 // }}}
 
-enum class HighlightSearchMatches
+enum class HighlightSearchMatches : uint8_t
 {
     No,
     Yes
 };
 
-enum class ScreenType
+enum class ScreenType : uint8_t
 {
     Primary = 0,
-    Alternate = 1
+    Alternate = 1,
 };
 
 // TODO: Maybe make boxed.h into its own C++ github repo?
-// TODO: Differenciate Line/Column types for DECOM enabled/disabled coordinates?
+// TODO: Differentiate Line/Column types for DECOM enabled/disabled coordinates?
 //
 // Line, Column                 : respects DECOM if enabled (a.k.a. logical column)
 // PhysicalLine, PhysicalColumn : always relative to origin (top left)
@@ -504,13 +475,13 @@ enum class ScreenType
 // - PhysicalCoordinate
 // - ScrollbackCoordinate
 
-enum class CursorDisplay
+enum class CursorDisplay : uint8_t
 {
     Steady,
     Blink
 };
 
-enum class CursorShape
+enum class CursorShape : uint8_t
 {
     Block,
     Rectangle,
@@ -520,13 +491,13 @@ enum class CursorShape
 
 CursorShape makeCursorShape(std::string const& name);
 
-enum class ControlTransmissionMode
+enum class ControlTransmissionMode : uint8_t
 {
     S7C1T, // 7-bit controls
     S8C1T, // 8-bit controls
 };
 
-enum class GraphicsRendition
+enum class GraphicsRendition : uint8_t
 {
     Reset = 0, //!< Reset any rendition (style as well as foreground / background coloring).
 
@@ -558,7 +529,7 @@ enum class GraphicsRendition
     NoOverline = 55,      //!< Reverses Overline.
 };
 
-enum class StatusDisplayType
+enum class StatusDisplayType : uint8_t
 {
     None,
     Indicator,
@@ -566,7 +537,7 @@ enum class StatusDisplayType
 };
 
 // Mandates the position to show the statusline at.
-enum class StatusDisplayPosition
+enum class StatusDisplayPosition : uint8_t
 {
     // The status line is classically shown at the bottom of the render target.
     Bottom,
@@ -576,7 +547,7 @@ enum class StatusDisplayPosition
 };
 
 // Selects whether the terminal sends data to the main display or the status line.
-enum class ActiveStatusDisplay
+enum class ActiveStatusDisplay : uint8_t
 {
     // Selects the main display. The terminal sends data to the main display only.
     Main,
@@ -587,7 +558,7 @@ enum class ActiveStatusDisplay
     IndicatorStatusLine,
 };
 
-enum class AnsiMode
+enum class AnsiMode : uint8_t
 {
     KeyboardAction = 2,    // KAM
     Insert = 4,            // IRM
@@ -595,7 +566,7 @@ enum class AnsiMode
     AutomaticNewLine = 20, // LNM
 };
 
-enum class DECMode
+enum class DECMode : std::uint16_t
 {
     UseApplicationCursorKeys,
     DesignateCharsetUSASCII,
@@ -697,6 +668,10 @@ enum class DECMode
     // intersecting with the main page area.
     ReportGridCellSelection = 2030,
 
+    // If enabled, the terminal will report color palette changes to the application,
+    // if modified by the user or operating system (e.g. dark/light mode adaption).
+    ReportColorPaletteUpdated = 2031,
+
     // If enabled (default, as per spec), then the cursor is left next to the graphic,
     // that is, the text cursor is placed at the position of the sixel cursor.
     // If disabled otherwise, the cursor is placed below the image, as if CR LF was sent,
@@ -706,7 +681,7 @@ enum class DECMode
 };
 
 /// OSC color-setting related commands that can be grouped into one
-enum class DynamicColorName
+enum class DynamicColorName : uint8_t
 {
     DefaultForegroundColor,
     DefaultBackgroundColor,
@@ -717,7 +692,7 @@ enum class DynamicColorName
     HighlightBackgroundColor,
 };
 
-enum class ViMode
+enum class ViMode : uint8_t
 {
     /// Vi-like normal-mode.
     Normal, // <Escape>, <C-[>
@@ -802,6 +777,7 @@ constexpr unsigned toDECModeNum(DECMode m)
         case DECMode::MouseAlternateScroll: return 1007;
         case DECMode::MousePassiveTracking: return 2029;
         case DECMode::ReportGridCellSelection: return 2030;
+        case DECMode::ReportColorPaletteUpdated: return 2031;
         case DECMode::BatchedRendering: return 2026;
         case DECMode::Unicode: return 2027;
         case DECMode::TextReflow: return 2028;
@@ -848,6 +824,7 @@ constexpr bool isValidDECMode(unsigned int mode) noexcept
         case DECMode::MouseAlternateScroll:
         case DECMode::MousePassiveTracking:
         case DECMode::ReportGridCellSelection:
+        case DECMode::ReportColorPaletteUpdated:
         case DECMode::BatchedRendering:
         case DECMode::Unicode:
         case DECMode::TextReflow:
@@ -894,150 +871,105 @@ struct SearchResult
     size_t partialMatchLength = 0; // length of partial match that happens at either end
 };
 
-} // namespace terminal
+} // namespace vtbackend
 
 namespace std
 {
 template <>
-struct numeric_limits<terminal::CursorShape>
+struct numeric_limits<vtbackend::CursorShape>
 {
-    constexpr static terminal::CursorShape min() noexcept { return terminal::CursorShape::Block; }
-    constexpr static terminal::CursorShape max() noexcept { return terminal::CursorShape::Bar; }
+    constexpr static vtbackend::CursorShape min() noexcept { return vtbackend::CursorShape::Block; }
+    constexpr static vtbackend::CursorShape max() noexcept { return vtbackend::CursorShape::Bar; }
     constexpr static size_t count() noexcept { return 4; }
 };
 } // namespace std
 
 // {{{ fmt formatter
-namespace fmt
-{
-
 template <>
-struct formatter<terminal::CursorShape>
+struct std::formatter<vtbackend::CursorShape>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::CursorShape value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::CursorShape value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::CursorShape::Bar: return fmt::format_to(ctx.out(), "Bar");
-            case terminal::CursorShape::Block: return fmt::format_to(ctx.out(), "Block");
-            case terminal::CursorShape::Rectangle: return fmt::format_to(ctx.out(), "Rectangle");
-            case terminal::CursorShape::Underscore: return fmt::format_to(ctx.out(), "Underscore");
+            case vtbackend::CursorShape::Bar: name = "Bar"; break;
+            case vtbackend::CursorShape::Block: name = "Block"; break;
+            case vtbackend::CursorShape::Rectangle: name = "Rectangle"; break;
+            case vtbackend::CursorShape::Underscore: name = "Underscore"; break;
         }
-        return fmt::format_to(ctx.out(), "{}", static_cast<unsigned>(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::CellLocation>
+struct std::formatter<vtbackend::CellLocation>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::CellLocation coord, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::CellLocation coord, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "({}, {})", coord.line, coord.column);
+        return formatter<std::string>::format(std::format("({}, {})", coord.line, coord.column), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::PageSize>
+struct std::formatter<vtbackend::PageSize>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::PageSize value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::PageSize value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}x{}", value.columns, value.lines);
+        return formatter<std::string>::format(std::format("{}x{}", value.columns, value.lines), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::GridSize>
+struct std::formatter<vtbackend::GridSize>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::GridSize value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::GridSize value, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}x{}", value.columns, value.lines);
+        return formatter<std::string>::format(std::format("{}x{}", value.columns, value.lines), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ScreenType>
+struct std::formatter<vtbackend::ScreenType>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(const vtbackend::ScreenType value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(const terminal::ScreenType value, FormatContext& ctx)
-    {
+        string_view name;
         switch (value)
         {
-            case terminal::ScreenType::Primary: return fmt::format_to(ctx.out(), "Primary");
-            case terminal::ScreenType::Alternate: return fmt::format_to(ctx.out(), "Alternate");
+            case vtbackend::ScreenType::Primary: name = "Primary"; break;
+            case vtbackend::ScreenType::Alternate: name = "Alternate"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", static_cast<unsigned>(value));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
 template <>
-struct formatter<terminal::PixelCoordinate>
+struct std::formatter<vtbackend::PixelCoordinate>: formatter<std::string>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(const vtbackend::PixelCoordinate coord, auto& ctx) const
     {
-        return ctx.begin();
-    }
-
-    template <typename FormatContext>
-    auto format(const terminal::PixelCoordinate coord, FormatContext& ctx)
-    {
-        return fmt::format_to(ctx.out(), "{}:{}", coord.x.value, coord.y.value);
+        return formatter<std::string>::format(std::format("{}:{}", coord.x.value, coord.y.value), ctx);
     }
 };
 
 template <>
-struct formatter<terminal::ViMode>
+struct std::formatter<vtbackend::ViMode>: formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(vtbackend::ViMode mode, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(terminal::ViMode mode, FormatContext& ctx)
-    {
-        using terminal::ViMode;
+        using vtbackend::ViMode;
+        string_view name;
         switch (mode)
         {
-            case ViMode::Normal: return fmt::format_to(ctx.out(), "Normal");
-            case ViMode::Insert: return fmt::format_to(ctx.out(), "Insert");
-            case ViMode::Visual: return fmt::format_to(ctx.out(), "Visual");
-            case ViMode::VisualLine: return fmt::format_to(ctx.out(), "VisualLine");
-            case ViMode::VisualBlock: return fmt::format_to(ctx.out(), "VisualBlock");
+            case ViMode::Normal: name = "Normal"; break;
+            case ViMode::Insert: name = "Insert"; break;
+            case ViMode::Visual: name = "Visual"; break;
+            case ViMode::VisualLine: name = "VisualLine"; break;
+            case ViMode::VisualBlock: name = "VisualBlock"; break;
         }
-        return fmt::format_to(ctx.out(), "({})", static_cast<unsigned>(mode));
+        return formatter<string_view>::format(name, ctx);
     }
 };
 
-} // namespace fmt
 // }}}

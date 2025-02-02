@@ -1,18 +1,7 @@
-/**
- * This file is part of the "contour" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+#include <contour/Config.h>
 #include <contour/TerminalSession.h>
-#include <contour/display/TerminalWidget.h>
+#include <contour/display/TerminalDisplay.h>
 #include <contour/helper.h>
 
 #include <vtbackend/Terminal.h>
@@ -25,7 +14,9 @@
 #include <QtCore/QUrl>
 #include <QtGui/QGuiApplication>
 #include <QtNetwork/QHostInfo>
-#include <QtWidgets/QMessageBox>
+#include <QtQml/QQmlApplicationEngine>
+#include <QtQml/QQmlEngine>
+#include <QtQuick/QQuickView>
 
 #include <algorithm>
 #include <array>
@@ -47,122 +38,143 @@ using std::variant;
 using std::vector;
 using std::chrono::steady_clock;
 
-using crispy::Point;
-using crispy::Size;
+using crispy::point;
+using crispy::size;
 using crispy::Zero;
 
-using terminal::Height;
-using terminal::ImageSize;
-using terminal::PageSize;
-using terminal::PixelCoordinate;
-using terminal::Width;
+using vtbackend::Height;
+using vtbackend::ImageSize;
+using vtbackend::PageSize;
+using vtbackend::PixelCoordinate;
+using vtbackend::Width;
 
 namespace contour
 {
 
 namespace
 {
-    terminal::CellLocation makeMouseCellLocation(QMouseEvent* event, TerminalSession const& session) noexcept
+    vtbackend::CellLocation makeMouseCellLocation(int x, int y, TerminalSession const& session) noexcept
     {
-        auto constexpr MarginTop = 0;
-        auto constexpr MarginLeft = 0;
-
         auto const pageSize = session.terminal().totalPageSize();
         auto const cellSize = session.display()->cellSize();
-        auto const dpr = session.contentScale();
+        auto const dpr = session.display()->contentScale();
 
-        auto const sx = int(double(event->pos().x()) * dpr);
-        auto const sy = int(double(event->pos().y()) * dpr);
+        auto const marginTop = static_cast<int>(unbox(session.profile().margins.value().vertical) * dpr);
+        auto const marginLeft = static_cast<int>(unbox(session.profile().margins.value().horizontal) * dpr);
 
-        auto const row =
-            terminal::LineOffset(clamp((sy - MarginTop) / cellSize.height.as<int>(), 0, *pageSize.lines - 1));
+        auto const sx = int(double(x) * dpr);
+        auto const sy = int(double(y) * dpr);
 
-        auto const col = terminal::ColumnOffset(
-            clamp((sx - MarginLeft) / cellSize.width.as<int>(), 0, *pageSize.columns - 1));
+        auto const row = vtbackend::LineOffset(
+            clamp((sy - marginTop) / cellSize.height.as<int>(), 0, *pageSize.lines - 1));
 
-        return { row, col };
+        auto const col = vtbackend::ColumnOffset(
+            clamp((sx - marginLeft) / cellSize.width.as<int>(), 0, *pageSize.columns - 1));
+
+        return { .line = row, .column = col };
     }
 
-    PixelCoordinate makeMousePixelPosition(QMouseEvent* _event, double dpr) noexcept
+    PixelCoordinate makeMousePixelPosition(QHoverEvent* event,
+                                           config::WindowMargins margins,
+                                           double dpr) noexcept
     {
-        // TODO: apply margin once supported
-        return PixelCoordinate { PixelCoordinate::X { int(double(_event->x()) * dpr) },
-                                 PixelCoordinate::Y { int(double(_event->y()) * dpr) } };
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        auto const position = event->position();
+#else
+        auto const position = event->pos();
+#endif
+        auto const marginLeft = static_cast<int>(unbox(margins.horizontal) * dpr);
+        auto const marginTop = static_cast<int>(unbox(margins.vertical) * dpr);
+        return PixelCoordinate { .x = PixelCoordinate::X { int(double(position.x()) * dpr) - marginLeft },
+                                 .y = PixelCoordinate::Y { int(double(position.y()) * dpr) - marginTop } };
     }
 
-    PixelCoordinate makeMousePixelPosition(QWheelEvent* _event, double dpr) noexcept
+    PixelCoordinate makeMousePixelPosition(QMouseEvent* event,
+                                           config::WindowMargins margins,
+                                           double dpr) noexcept
     {
-        // TODO: apply margin once supported
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        auto const position = event->position();
+#else
+        auto const position = QPointF { static_cast<qreal>(event->x()), static_cast<qreal>(event->y()) };
+#endif
+        auto const marginLeft = static_cast<int>(unbox(margins.horizontal) * dpr);
+        auto const marginTop = static_cast<int>(unbox(margins.vertical) * dpr);
+        return PixelCoordinate { .x = PixelCoordinate::X { int(double(position.x()) * dpr) - marginLeft },
+                                 .y = PixelCoordinate::Y { int(double(position.y()) * dpr) - marginTop } };
+    }
+
+    PixelCoordinate makeMousePixelPosition(QWheelEvent* event,
+                                           config::WindowMargins margins,
+                                           double dpr) noexcept
+    {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        return PixelCoordinate { PixelCoordinate::X { int(double(_event->position().x()) * dpr) },
-                                 PixelCoordinate::Y { int(double(_event->position().y()) * dpr) } };
+        auto const position = event->position();
 #else
-        return PixelCoordinate { PixelCoordinate::X { int(double(_event->x()) * dpr) },
-                                 PixelCoordinate::Y { int(double(_event->y()) * dpr) } };
+        auto const position = event->posF();
 #endif
+        auto const marginLeft = static_cast<int>(unbox(margins.horizontal) * dpr);
+        auto const marginTop = static_cast<int>(unbox(margins.vertical) * dpr);
+        return PixelCoordinate { .x = PixelCoordinate::X { int(double(position.x()) * dpr) - marginLeft },
+                                 .y = PixelCoordinate::Y { int(double(position.y()) * dpr) - marginTop } };
     }
 
-    int mouseWheelDelta(QWheelEvent* _event) noexcept
+    QPoint transposed(QPoint p) noexcept
     {
-#if 1
-        // FIXME: Temporarily addressing a really bad Qt implementation detail
-        // as tracked here:
-        // https://github.com/contour-terminal/contour/issues/394
-        if (_event->pixelDelta().y())
-            return _event->pixelDelta().y();
-        if (_event->angleDelta().y())
-            return _event->angleDelta().y();
+        // NB: We cannot use QPoint::transposed(), because it is not available in older Qt versions.
+        return QPoint { p.y(), p.x() };
+    }
 
-        if (_event->pixelDelta().x())
-            return _event->pixelDelta().x();
-        if (_event->angleDelta().x())
-            return _event->angleDelta().x();
+    void sendWheelEventForDelta(QPoint const& delta,
+                                PixelCoordinate const& position,
+                                vtbackend::Modifiers modifiers,
+                                TerminalSession& session)
+    {
+        using VTMouseButton = vtbackend::MouseButton;
 
-        return 0;
+        session.addScrollX(delta.x());
+        session.addScrollY(delta.y());
 
-#else
-        // switch (_event->orientation())
-        // {
-        //     case Qt::Orientation::Horizontal:
-        //         return _event->pixelDelta().x() ? _event->pixelDelta().x()
-        //                                         : _event->angleDelta().x();
-        //     case Qt::Orientation::Vertical:
-        //         return _event->pixelDelta().y() ? _event->pixelDelta().y()
-        //                                         : _event->angleDelta().y();
-        // }
-        return _event->angleDelta().y();
-#endif
+        inputLog()("[{}] Accumulate scroll with current value {}",
+                   modifiers,
+                   crispy::point { .x = session.getScrollX(), .y = session.getScrollY() });
+
+        if (std::abs(session.getScrollX()) > unbox<int>(session.terminal().cellPixelSize().width))
+        {
+            session.sendMousePressEvent(modifiers,
+                                        session.getScrollX() > 0 ? VTMouseButton::WheelRight
+                                                                 : VTMouseButton::WheelLeft,
+                                        position);
+            session.resetScrollX();
+        }
+
+        if (std::abs(session.getScrollY()) > unbox<int>(session.terminal().cellPixelSize().height))
+        {
+            session.sendMousePressEvent(modifiers,
+                                        session.getScrollY() > 0 ? VTMouseButton::WheelUp
+                                                                 : VTMouseButton::WheelDown,
+                                        position);
+            session.resetScrollY();
+        }
     }
 
 } // namespace
 
-QScreen* screenOf(QWidget const* _widget)
+bool sendKeyEvent(QKeyEvent* event, vtbackend::KeyboardEventType eventType, TerminalSession& session)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-    return _widget->screen();
-#elif QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-    // #warning "Using alternative implementation of screenOf() for Qt >= 5.10.0"
-    if (auto topLevel = _widget->window())
-    {
-        if (auto screenByPos = QGuiApplication::screenAt(topLevel->geometry().center()))
-            return screenByPos;
-    }
-    return QGuiApplication::primaryScreen();
-#else
-    // #warning "Using alternative implementation of screenOf() for Qt < 5.10.0"
-    return QGuiApplication::primaryScreen();
-#endif
-}
-
-bool sendKeyEvent(QKeyEvent* _event, TerminalSession& _session)
-{
-    using terminal::Key;
-    using terminal::Modifier;
+    using vtbackend::Key;
+    using vtbackend::Modifier;
 
     auto const now = steady_clock::now();
 
-    static auto constexpr keyMappings = array {
+    static auto constexpr KeyMappings = array {
         // {{{
+        pair { Qt::Key_Escape, Key::Escape },
+        pair { Qt::Key_Enter, Key::Enter },
+        pair { Qt::Key_Return, Key::Enter },
+        pair { Qt::Key_Tab, Key::Tab },
+        pair { Qt::Key_Backspace, Key::Backspace },
+
         pair { Qt::Key_Insert, Key::Insert },
         pair { Qt::Key_Delete, Key::Delete },
         pair { Qt::Key_Right, Key::RightArrow },
@@ -193,122 +205,311 @@ bool sendKeyEvent(QKeyEvent* _event, TerminalSession& _session)
         pair { Qt::Key_F18, Key::F18 },
         pair { Qt::Key_F19, Key::F19 },
         pair { Qt::Key_F20, Key::F20 },
+        pair { Qt::Key_F21, Key::F21 },
+        pair { Qt::Key_F22, Key::F22 },
+        pair { Qt::Key_F23, Key::F23 },
+        pair { Qt::Key_F24, Key::F24 },
+        pair { Qt::Key_F25, Key::F25 },
+        pair { Qt::Key_F26, Key::F26 },
+        pair { Qt::Key_F27, Key::F27 },
+        pair { Qt::Key_F28, Key::F28 },
+        pair { Qt::Key_F29, Key::F29 },
+        pair { Qt::Key_F30, Key::F30 },
+        pair { Qt::Key_F31, Key::F31 },
+        pair { Qt::Key_F32, Key::F32 },
+        pair { Qt::Key_F33, Key::F33 },
+        pair { Qt::Key_F34, Key::F34 },
+        pair { Qt::Key_F35, Key::F35 },
+
+        pair { Qt::Key_MediaPlay, Key::MediaPlay },
+        pair { Qt::Key_MediaStop, Key::MediaStop },
+        pair { Qt::Key_MediaPrevious, Key::MediaPrevious },
+        pair { Qt::Key_MediaNext, Key::MediaNext },
+        pair { Qt::Key_MediaPause, Key::MediaPause },
+        pair { Qt::Key_MediaTogglePlayPause, Key::MediaTogglePlayPause },
+
+        pair { Qt::Key_VolumeUp, Key::VolumeUp },
+        pair { Qt::Key_VolumeDown, Key::VolumeDown },
+        pair { Qt::Key_VolumeMute, Key::VolumeMute },
+
+        pair { Qt::Key_Control, Key::LeftControl }, // NB: Qt cannot distinguish between left and right
+        pair { Qt::Key_Alt, Key::LeftAlt },         // NB: Qt cannot distinguish between left and right
+        pair { Qt::Key_Meta, Key::LeftMeta },       // NB: Qt cannot distinguish between left and right
+        pair { Qt::Key_Super_L, Key::LeftSuper },
+        pair { Qt::Key_Super_R, Key::RightSuper },
+        pair { Qt::Key_Hyper_L, Key::LeftHyper },
+        pair { Qt::Key_Hyper_R, Key::RightHyper },
+
+        pair { Qt::Key_CapsLock, Key::CapsLock },
+        pair { Qt::Key_ScrollLock, Key::ScrollLock },
+        pair { Qt::Key_NumLock, Key::NumLock },
+        pair { Qt::Key_Print, Key::PrintScreen },
+        pair { Qt::Key_Pause, Key::Pause },
+        pair { Qt::Key_Menu, Key::Menu },
     }; // }}}
 
-    static auto constexpr charMappings = array {
+    static auto constexpr CharMappings = array {
         // {{{
-        pair { Qt::Key_Return, '\r' },      pair { Qt::Key_AsciiCircum, '^' },
-        pair { Qt::Key_AsciiTilde, '~' },   pair { Qt::Key_Backslash, '\\' },
-        pair { Qt::Key_Bar, '|' },          pair { Qt::Key_BraceLeft, '{' },
-        pair { Qt::Key_BraceRight, '}' },   pair { Qt::Key_BracketLeft, '[' },
-        pair { Qt::Key_BracketRight, ']' }, pair { Qt::Key_QuoteLeft, '`' },
+        // clang-format off
+        pair { Qt::Key_Space, ' ' },
+        pair { Qt::Key_Exclam, '!' },
+        pair { Qt::Key_QuoteDbl, '"' },
+        pair { Qt::Key_NumberSign, '#' },
+        pair { Qt::Key_Dollar, '$' },
+        pair { Qt::Key_Percent, '%' },
+        pair { Qt::Key_Ampersand, '&' },
+        pair { Qt::Key_Apostrophe, '\'' },
+        pair { Qt::Key_ParenLeft, '(' },
+        pair { Qt::Key_ParenRight, ')' },
+        pair { Qt::Key_Asterisk, '*' },
+        pair { Qt::Key_Plus, '+' },
+        pair { Qt::Key_Comma, ',' },
+        pair { Qt::Key_Minus, '-' },
+        pair { Qt::Key_Period, '.' },
+        pair { Qt::Key_Slash, '/' },
+        pair { Qt::Key_0, '0' },
+        pair { Qt::Key_1, '1' },
+        pair { Qt::Key_2, '2' },
+        pair { Qt::Key_3, '3' },
+        pair { Qt::Key_4, '4' },
+        pair { Qt::Key_5, '5' },
+        pair { Qt::Key_6, '6' },
+        pair { Qt::Key_7, '7' },
+        pair { Qt::Key_8, '8' },
+        pair { Qt::Key_9, '9' },
+        pair { Qt::Key_Colon, ':' },
+        pair { Qt::Key_Semicolon, ';' },
+        pair { Qt::Key_Less, '<' },
+        pair { Qt::Key_Equal, '=' },
+        pair { Qt::Key_Greater, '>' },
+        pair { Qt::Key_Question, '?' },
+        pair { Qt::Key_At, '@' },
+        pair { Qt::Key_A, 'A' },
+        pair { Qt::Key_B, 'B' },
+        pair { Qt::Key_C, 'C' },
+        pair { Qt::Key_D, 'D' },
+        pair { Qt::Key_E, 'E' },
+        pair { Qt::Key_F, 'F' },
+        pair { Qt::Key_G, 'G' },
+        pair { Qt::Key_H, 'H' },
+        pair { Qt::Key_I, 'I' },
+        pair { Qt::Key_J, 'J' },
+        pair { Qt::Key_K, 'K' },
+        pair { Qt::Key_L, 'L' },
+        pair { Qt::Key_M, 'M' },
+        pair { Qt::Key_N, 'N' },
+        pair { Qt::Key_O, 'O' },
+        pair { Qt::Key_P, 'P' },
+        pair { Qt::Key_Q, 'Q' },
+        pair { Qt::Key_R, 'R' },
+        pair { Qt::Key_S, 'S' },
+        pair { Qt::Key_T, 'T' },
+        pair { Qt::Key_U, 'U' },
+        pair { Qt::Key_V, 'V' },
+        pair { Qt::Key_W, 'W' },
+        pair { Qt::Key_X, 'X' },
+        pair { Qt::Key_Y, 'Y' },
+        pair { Qt::Key_Z, 'Z' },
+        pair { Qt::Key_BracketLeft, '[' },
+        pair { Qt::Key_Backslash, '\\' },
+        pair { Qt::Key_BracketRight, ']' },
+        pair { Qt::Key_AsciiCircum, '^' },
         pair { Qt::Key_Underscore, '_' },
+        pair { Qt::Key_QuoteLeft, '`' },
+        pair { Qt::Key_BraceLeft, '{' },
+        pair { Qt::Key_Bar, '|' },
+        pair { Qt::Key_BraceRight, '}' },
+        pair { Qt::Key_AsciiTilde, '~' },
+        // clang-format on
     }; // }}}
 
-    auto const modifiers = makeModifier(_event->modifiers());
-    auto const key = _event->key();
+    auto const modifiers = makeModifiers(event->modifiers());
+    auto const key = event->key();
 
-    if (auto i = find_if(begin(keyMappings),
-                         end(keyMappings),
-                         [_event](auto const& x) { return x.first == _event->key(); });
-        i != end(keyMappings))
+    if (event->modifiers().testFlag(Qt::KeypadModifier))
     {
-        _session.sendKeyPressEvent(i->second, modifiers, now);
+        std::optional<Key> mappedKey = nullopt;
+        switch (key)
+        {
+            case Qt::Key_0: mappedKey = Key::Numpad_0; break;
+            case Qt::Key_1: mappedKey = Key::Numpad_1; break;
+            case Qt::Key_2: mappedKey = Key::Numpad_2; break;
+            case Qt::Key_3: mappedKey = Key::Numpad_3; break;
+            case Qt::Key_4: mappedKey = Key::Numpad_4; break;
+            case Qt::Key_5: mappedKey = Key::Numpad_5; break;
+            case Qt::Key_6: mappedKey = Key::Numpad_6; break;
+            case Qt::Key_7: mappedKey = Key::Numpad_7; break;
+            case Qt::Key_8: mappedKey = Key::Numpad_8; break;
+            case Qt::Key_9: mappedKey = Key::Numpad_9; break;
+            case Qt::Key_Asterisk: mappedKey = Key::Numpad_Multiply; break;
+            case Qt::Key_Plus: mappedKey = Key::Numpad_Add; break;
+            case Qt::Key_Minus: mappedKey = Key::Numpad_Subtract; break;
+            case Qt::Key_Period: mappedKey = Key::Numpad_Decimal; break;
+            case Qt::Key_Slash: mappedKey = Key::Numpad_Divide; break;
+            case Qt::Key_Enter: mappedKey = Key::Numpad_Enter; break;
+            default: break;
+        }
+        if (mappedKey)
+        {
+            session.sendKeyEvent(*mappedKey, modifiers, eventType, now);
+            return true;
+        }
+    }
+
+    // NOLINTNEXTLINE(readability-qualified-auto)
+    if (auto const i =
+            std::ranges::find_if(KeyMappings, [event](auto const& x) { return x.first == event->key(); });
+        i != end(KeyMappings))
+    {
+        session.sendKeyEvent(i->second, modifiers, eventType, now);
+        event->accept();
         return true;
     }
 
-    if (auto i = find_if(begin(charMappings),
-                         end(charMappings),
-                         [_event](auto const& x) { return x.first == _event->key(); });
-        i != end(charMappings))
+    auto const physicalKey = event->nativeVirtualKey();
+    if (event->text().isEmpty())
     {
-        _session.sendCharPressEvent(static_cast<char32_t>(i->second), modifiers, now);
-        return true;
+        // NOLINTNEXTLINE(readability-qualified-auto)
+        if (auto const i = std::ranges::find_if(CharMappings,
+                                                [event](auto const& x) { return x.first == event->key(); });
+            i != end(CharMappings))
+        {
+            session.sendCharEvent(static_cast<char32_t>(i->second), physicalKey, modifiers, eventType, now);
+            event->accept();
+            return true;
+        }
     }
 
     if (key == Qt::Key_Backtab)
     {
-        _session.sendCharPressEvent(U'\t', modifiers.with(Modifier::Shift), now);
+        session.sendKeyEvent(Key::Tab, modifiers.with(Modifier::Shift), eventType, now);
+        event->accept();
         return true;
     }
 
-    if (modifiers.control() && key >= 0x20 && key < 0x80)
+#if defined(__apple__)
+    if (0x20 <= key && key < 0x80 && (modifiers.alt() && session.profile().optionKeyAsAlt.value()))
     {
-        _session.sendCharPressEvent(static_cast<char32_t>(key), modifiers, now);
+        auto const ch = static_cast<char32_t>(modifiers.shift() ? std::toupper(key) : std::tolower(key));
+        session.sendCharEvent(ch, physicalKey, modifiers, eventType, now);
+        event->accept();
         return true;
     }
-
-    switch (key)
-    {
-        case Qt::Key_BraceLeft: _session.sendCharPressEvent(L'[', modifiers, now); return true;
-        case Qt::Key_Equal: _session.sendCharPressEvent(L'=', modifiers, now); return true;
-        case Qt::Key_BraceRight: _session.sendCharPressEvent(L']', modifiers, now); return true;
-        case Qt::Key_Backspace: _session.sendCharPressEvent(0x08, modifiers, now); return true;
-    }
-
-    if (!_event->text().isEmpty())
-    {
-#if defined(__APPLE__)
-        // On OS/X the Alt-modifier does not seem to be passed to the terminal apps
-        // but rather remapped to whatever OS/X is mapping them to.
-        for (char32_t const ch: _event->text().toUcs4())
-            _session.sendCharPressEvent(ch, modifiers.without(Modifier::Alt), now);
-#else
-        for (char32_t const ch: _event->text().toUcs4())
-            _session.sendCharPressEvent(ch, modifiers, now);
 #endif
 
+    if (0x20 <= key && key < 0x80 && (modifiers & Modifier::Control))
+    {
+        session.sendCharEvent(static_cast<char32_t>(key), physicalKey, modifiers, eventType, now);
+        event->accept();
         return true;
     }
 
-    InputLog()("Input not handled for mods {} key 0x{:X}", modifiers, key);
+    if (!event->text().isEmpty())
+    {
+        auto const codepoints = event->text().toUcs4();
+        assert(codepoints.size() >= 1);
+#if defined(__APPLE__)
+        // On macOS the Alt-modifier does not seem to be passed to the terminal apps
+        // but rather remapped to whatever macOS is mapping them to.
+        for (char32_t const ch: codepoints)
+            session.sendCharEvent(ch, physicalKey, modifiers.without(Modifier::Alt), eventType, now);
+#else
+        for (char32_t const ch: codepoints)
+            session.sendCharEvent(ch, physicalKey, modifiers, eventType, now);
+#endif
+        event->accept();
+        return true;
+    }
+
+    inputLog()("Input not handled for mods {} key 0x{:X}", modifiers, key);
     return false;
 }
 
-void sendWheelEvent(QWheelEvent* _event, TerminalSession& _session)
+void sendWheelEvent(QWheelEvent* event, TerminalSession& session)
 {
-    auto const yDelta = mouseWheelDelta(_event);
+    using vtbackend::Modifier;
 
-    if (yDelta)
+    auto const modifiers = makeModifiers(event->modifiers());
+
+    // NOTE: Qt is playing some weird games with the mouse wheel events, i.e. if Alt is pressed
+    //       it will send horizontal wheel events instead of vertical ones. We need to compensate
+    //       for that here.
+
+    auto const scaledPixelDelta = session.display()->contentScale() * event->pixelDelta();
+    auto const pixelDelta = (modifiers & Modifier::Alt) ? transposed(scaledPixelDelta) : scaledPixelDelta;
+
+    auto const numDegrees =
+        ((modifiers & Modifier::Alt) ? transposed(event->angleDelta()) : event->angleDelta()) / 8;
+
+    auto const pixelPosition =
+        makeMousePixelPosition(event, session.profile().margins.value(), session.display()->contentScale());
+
+    if (!pixelDelta.isNull())
     {
-        auto const modifier = makeModifier(_event->modifiers());
-        auto const button = yDelta > 0 ? terminal::MouseButton::WheelUp : terminal::MouseButton::WheelDown;
-        auto const pixelPosition = makeMousePixelPosition(_event, _session.contentScale());
-
-        _session.sendMousePressEvent(modifier, button, pixelPosition);
+        sendWheelEventForDelta(pixelDelta, pixelPosition, modifiers, session);
+        event->accept();
+    }
+    else if (!numDegrees.isNull())
+    {
+        auto const numSteps = numDegrees / 15;
+        auto const cellSize = session.terminal().cellPixelSize();
+        auto const scaledDelta = QPoint {
+            numSteps.x() * unbox<int>(cellSize.width),
+            numSteps.y() * unbox<int>(cellSize.height),
+        };
+        sendWheelEventForDelta(scaledDelta, pixelPosition, modifiers, session);
+        event->accept();
     }
 }
 
-void sendMousePressEvent(QMouseEvent* _event, TerminalSession& _session)
+void sendMousePressEvent(QMouseEvent* event, TerminalSession& session)
 {
-    _session.sendMousePressEvent(makeModifier(_event->modifiers()),
-                                 makeMouseButton(_event->button()),
-                                 makeMousePixelPosition(_event, _session.contentScale()));
-    _event->accept();
+    session.sendMousePressEvent(
+        makeModifiers(event->modifiers()),
+        makeMouseButton(event->button()),
+        makeMousePixelPosition(event, session.profile().margins.value(), session.display()->contentScale()));
+    event->accept();
 }
 
-void sendMouseReleaseEvent(QMouseEvent* _event, TerminalSession& _session)
+void sendMouseReleaseEvent(QMouseEvent* event, TerminalSession& session)
 {
-    _session.sendMouseReleaseEvent(makeModifier(_event->modifiers()),
-                                   makeMouseButton(_event->button()),
-                                   makeMousePixelPosition(_event, _session.contentScale()));
-    _event->accept();
+    session.sendMouseReleaseEvent(
+        makeModifiers(event->modifiers()),
+        makeMouseButton(event->button()),
+        makeMousePixelPosition(event, session.profile().margins.value(), session.display()->contentScale()));
+    event->accept();
 }
 
-void sendMouseMoveEvent(QMouseEvent* _event, TerminalSession& _session)
+void sendMouseMoveEvent(QMouseEvent* event, TerminalSession& session)
 {
-    _session.sendMouseMoveEvent(makeModifier(_event->modifiers()),
-                                makeMouseCellLocation(_event, _session),
-                                makeMousePixelPosition(_event, _session.contentScale()));
+    session.sendMouseMoveEvent(
+        makeModifiers(event->modifiers()),
+        makeMouseCellLocation(event->pos().x(), event->pos().y(), session),
+        makeMousePixelPosition(event, session.profile().margins.value(), session.display()->contentScale()));
+    event->accept();
 }
 
-void spawnNewTerminal(string const& _programPath,
-                      string const& _configPath,
-                      string const& _profileName,
-                      string const& _cwdUrl)
+void sendMouseMoveEvent(QHoverEvent* event, TerminalSession& session)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    auto const position = event->position().toPoint();
+#else
+    auto const position = event->pos();
+#endif
+    session.sendMouseMoveEvent(
+        makeModifiers(event->modifiers()),
+        makeMouseCellLocation(position.x(), position.y(), session),
+        makeMousePixelPosition(event, session.profile().margins.value(), session.display()->contentScale()));
+    event->accept();
+}
+
+void spawnNewTerminal(string const& programPath,
+                      string const& configPath,
+                      string const& profileName,
+                      string const& cwdUrl)
 {
     auto const wd = [&]() -> QString {
-        auto const url = QUrl(QString::fromUtf8(_cwdUrl.c_str()));
+        auto const url = QUrl(QString::fromUtf8(cwdUrl.c_str()));
 
         if (url.host().isEmpty())
             return url.path();
@@ -319,14 +520,14 @@ void spawnNewTerminal(string const& _programPath,
             return QString();
     }();
 
-    QString const program = QString::fromUtf8(_programPath.c_str());
+    QString const program = QString::fromUtf8(programPath.c_str());
     QStringList args;
 
-    if (!_configPath.empty())
-        args << "config" << QString::fromStdString(_configPath);
+    if (!configPath.empty())
+        args << "config" << QString::fromStdString(configPath);
 
-    if (!_profileName.empty())
-        args << "profile" << QString::fromStdString(_profileName);
+    if (!profileName.empty())
+        args << "profile" << QString::fromStdString(profileName);
 
     if (!wd.isEmpty())
         args << "working-directory" << wd;
@@ -334,143 +535,120 @@ void spawnNewTerminal(string const& _programPath,
     QProcess::startDetached(program, args);
 }
 
-bool requestPermission(PermissionCache& _cache,
-                       QWidget* _parent,
-                       config::Permission _allowedByConfig,
-                       std::string const& _topicText)
+vtbackend::FontDef getFontDefinition(vtrasterizer::Renderer& renderer)
 {
-    switch (_allowedByConfig)
-    {
-        case config::Permission::Allow:
-            SessionLog()("Permission for {} allowed by configuration.", _topicText);
-            return true;
-        case config::Permission::Deny:
-            SessionLog()("Permission for {} denied by configuration.", _topicText);
-            return false;
-        case config::Permission::Ask: break;
-    }
-
-    // Did we remember a last interactive question?
-    if (auto const i = _cache.find(_topicText); i != _cache.end())
-        return i->second;
-
-    SessionLog()("Permission for {} requires asking user.", _topicText);
-
-    auto const reply =
-        QMessageBox::question(_parent,
-                              fmt::format("{} requested", _topicText).c_str(),
-                              QString::fromStdString(fmt::format(
-                                  "The application has requested for {}. Do you allow this?", _topicText)),
-                              QMessageBox::StandardButton::Yes | QMessageBox::StandardButton::YesToAll
-                                  | QMessageBox::StandardButton::No | QMessageBox::StandardButton::NoToAll,
-                              QMessageBox::StandardButton::NoButton);
-
-    switch (reply)
-    {
-        case QMessageBox::StandardButton::NoToAll: _cache[_topicText] = false; break;
-        case QMessageBox::StandardButton::YesToAll: _cache[_topicText] = true; [[fallthrough]];
-        case QMessageBox::StandardButton::Yes: return true;
-        default: break;
-    }
-
-    return false;
-}
-
-terminal::FontDef getFontDefinition(terminal::rasterizer::Renderer& _renderer)
-{
-    auto const fontByStyle = [&](text::font_weight _weight,
-                                 text::font_slant _slant) -> text::font_description const& {
-        auto const bold = _weight != text::font_weight::normal;
-        auto const italic = _slant != text::font_slant::normal;
+    auto const fontByStyle = [&](text::font_weight weight,
+                                 text::font_slant slant) -> text::font_description const& {
+        auto const bold = weight != text::font_weight::normal;
+        auto const italic = slant != text::font_slant::normal;
         if (bold && italic)
-            return _renderer.fontDescriptions().boldItalic;
+            return renderer.fontDescriptions().boldItalic;
         else if (bold)
-            return _renderer.fontDescriptions().bold;
+            return renderer.fontDescriptions().bold;
         else if (italic)
-            return _renderer.fontDescriptions().italic;
+            return renderer.fontDescriptions().italic;
         else
-            return _renderer.fontDescriptions().regular;
+            return renderer.fontDescriptions().regular;
     };
-    auto const nameOfStyledFont = [&](text::font_weight _weight, text::font_slant _slant) -> string {
-        auto const& regularFont = _renderer.fontDescriptions().regular;
-        auto const& styledFont = fontByStyle(_weight, _slant);
+    auto const nameOfStyledFont = [&](text::font_weight weight, text::font_slant slant) -> string {
+        auto const& regularFont = renderer.fontDescriptions().regular;
+        auto const& styledFont = fontByStyle(weight, slant);
         if (styledFont.familyName == regularFont.familyName)
             return "auto";
         else
             return styledFont.toPattern();
     };
-    return { _renderer.fontDescriptions().size.pt,
-             _renderer.fontDescriptions().regular.familyName,
-             nameOfStyledFont(text::font_weight::bold, text::font_slant::normal),
-             nameOfStyledFont(text::font_weight::normal, text::font_slant::italic),
-             nameOfStyledFont(text::font_weight::bold, text::font_slant::italic),
-             _renderer.fontDescriptions().emoji.toPattern() };
+    return { .size = renderer.fontDescriptions().size.pt,
+             .regular = renderer.fontDescriptions().regular.familyName,
+             .bold = nameOfStyledFont(text::font_weight::bold, text::font_slant::normal),
+             .italic = nameOfStyledFont(text::font_weight::normal, text::font_slant::italic),
+             .boldItalic = nameOfStyledFont(text::font_weight::bold, text::font_slant::italic),
+             .emoji = renderer.fontDescriptions().emoji.toPattern() };
 }
 
-terminal::rasterizer::PageMargin computeMargin(ImageSize _cellSize,
-                                               PageSize _charCells,
-                                               ImageSize _pixels) noexcept
+vtrasterizer::PageMargin computeMargin(ImageSize cellSize,
+                                       PageSize charCells,
+                                       ImageSize displaySize,
+                                       config::WindowMargins minimumMargins) noexcept
 {
-    auto const usedHeight = unbox<int>(_charCells.lines) * unbox<int>(_cellSize.height);
-    auto const freeHeight = unbox<int>(_pixels.height) - usedHeight;
-    auto const bottomMargin = freeHeight;
-    auto const topMargin = 0;
+    auto const usedHeight = unbox(charCells.lines) * unbox(cellSize.height);
 
-    // auto const usedWidth = _charCells.columns * regularFont_.maxAdvance();
-    // auto const freeWidth = _pixels.width - usedWidth;
-    auto constexpr leftMargin = 0;
+    auto const topMargin = unbox<int>(minimumMargins.vertical);
+    auto const bottomMargin = unbox<int>(std::min(
+        config::VerticalMargin(unbox(displaySize.height) - usedHeight - topMargin), minimumMargins.vertical));
+    auto const leftMargin = unbox<int>(minimumMargins.horizontal);
 
-    return { leftMargin, topMargin, bottomMargin };
+    return { .left = leftMargin, .top = topMargin, .bottom = bottomMargin };
 }
 
-terminal::rasterizer::FontDescriptions sanitizeFontDescription(terminal::rasterizer::FontDescriptions _fonts,
-                                                               text::DPI _dpi)
+vtrasterizer::FontDescriptions sanitizeFontDescription(vtrasterizer::FontDescriptions fonts, text::DPI dpi)
 {
-    if (_fonts.dpi.x <= 0 || _fonts.dpi.y <= 0)
-        _fonts.dpi = _dpi;
-    if (std::fabs(_fonts.size.pt) <= std::numeric_limits<double>::epsilon())
-        _fonts.size.pt = 12;
-    return _fonts;
+    if (fonts.dpi.x <= 0 || fonts.dpi.y <= 0)
+        fonts.dpi = dpi;
+    if (std::fabs(fonts.size.pt) <= std::numeric_limits<double>::epsilon())
+        fonts.size.pt = 12;
+    return fonts;
 }
 
-bool applyFontDescription(ImageSize _cellSize,
-                          PageSize _pageSize,
-                          ImageSize _pixelSize,
-                          text::DPI _dpi,
-                          terminal::rasterizer::Renderer& _renderer,
-                          terminal::rasterizer::FontDescriptions _fontDescriptions)
+bool applyFontDescription(text::DPI dpi,
+                          vtrasterizer::Renderer& renderer,
+                          vtrasterizer::FontDescriptions fontDescriptions)
 {
-    if (_renderer.fontDescriptions() == _fontDescriptions)
+    if (renderer.fontDescriptions() == fontDescriptions)
         return false;
 
-    auto const windowMargin = computeMargin(_cellSize, _pageSize, _pixelSize);
-
-    _renderer.setFonts(sanitizeFontDescription(std::move(_fontDescriptions), _dpi));
-    _renderer.setMargin(windowMargin);
-    _renderer.updateFontMetrics();
+    renderer.setFonts(sanitizeFontDescription(std::move(fontDescriptions), dpi));
+    renderer.updateFontMetrics();
 
     return true;
 }
 
-void applyResize(terminal::ImageSize _newPixelSize,
-                 TerminalSession& _session,
-                 terminal::rasterizer::Renderer& _renderer)
+void applyResize(vtbackend::ImageSize newPixelSize,
+                 TerminalSession& session,
+                 vtrasterizer::Renderer& renderer)
 {
-    if (*_newPixelSize.width == 0 || *_newPixelSize.height == 0)
+    if (*newPixelSize.width == 0 || *newPixelSize.height == 0)
         return;
 
-    auto const newPageSize = pageSizeForPixels(_newPixelSize, _renderer.gridMetrics().cellSize);
-    terminal::Terminal& terminal = _session.terminal();
-    terminal::ImageSize cellSize = _renderer.gridMetrics().cellSize;
+    auto const oldPageSize = session.terminal().pageSize();
+    auto const newPageSize = pageSizeForPixels(
+        newPixelSize,
+        renderer.gridMetrics().cellSize,
+        applyContentScale(session.profile().margins.value(), session.display()->contentScale()));
+    vtbackend::Terminal& terminal = session.terminal();
+    vtbackend::ImageSize const cellSize = renderer.gridMetrics().cellSize;
 
-    _renderer.renderTarget().setRenderSize(_newPixelSize);
-    _renderer.setPageSize(newPageSize);
-    _renderer.setMargin(computeMargin(_renderer.gridMetrics().cellSize, newPageSize, _newPixelSize));
+    if (renderer.hasRenderTarget())
+        renderer.renderTarget().setRenderSize(newPixelSize);
+    renderer.setPageSize(newPageSize);
+    renderer.setMargin(computeMargin(
+        renderer.gridMetrics().cellSize,
+        newPageSize,
+        newPixelSize,
+        applyContentScale(session.profile().margins.value(), session.display()->contentScale())));
 
-    if (newPageSize == terminal.pageSize())
-        return;
+    if (oldPageSize.lines != newPageSize.lines)
+        emit session.lineCountChanged(newPageSize.lines.as<int>());
+
+    if (oldPageSize.columns != newPageSize.columns)
+        emit session.columnsCountChanged(newPageSize.columns.as<int>());
 
     auto const viewSize = cellSize * newPageSize;
+    displayLog()("Applying resize {}/{} pixels (margins {}) and {} -> {} cells.",
+                 viewSize,
+                 newPixelSize,
+                 session.profile().margins.value(),
+                 terminal.pageSize(),
+                 newPageSize);
+
+    auto const l = scoped_lock { terminal };
+
+    if (newPageSize == terminal.pageSize())
+    {
+        displayLog()("No resize necessary. New size is same as old size of {}.", newPageSize);
+        return;
+    }
+
     terminal.resizeScreen(newPageSize, viewSize);
     terminal.clearSelection();
 }

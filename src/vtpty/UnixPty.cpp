@@ -1,33 +1,24 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+#include <vtpty/Process.h>
 #include <vtpty/UnixPty.h>
 #include <vtpty/UnixUtils.h>
 
+#include <crispy/BufferObject.h>
 #include <crispy/deferred.h>
 #include <crispy/escape.h>
 #include <crispy/logstore.h>
 
 #include <cassert>
+#include <csignal>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(__OpenBSD__)
     #include <util.h>
 #elif defined(__FreeBSD__)
     #include <libutil.h>
@@ -47,113 +38,35 @@
 #include <pwd.h>
 #include <unistd.h>
 
+#if defined(__linux__) && defined(UTEMPTER)
+    #include <utempter.h>
+#endif
+
 using std::make_unique;
-using std::max;
-using std::min;
 using std::nullopt;
 using std::numeric_limits;
 using std::optional;
 using std::runtime_error;
 using std::scoped_lock;
 using std::string_view;
-using std::tuple;
 
 using namespace std::string_literals;
 
-namespace terminal
+namespace vtpty
 {
 
 namespace
 {
-    int waitForReadable(int ptyMaster,
-                        int stdoutFastPipe,
-                        int wakeupPipe,
-                        std::chrono::milliseconds timeout) noexcept
-    {
-        if (ptyMaster < 0)
-        {
-            if (PtyInLog)
-                PtyInLog()("read() called with closed PTY master.");
-            errno = ENODEV;
-            return -1;
-        }
-
-        auto tv = timeval {};
-        tv.tv_sec = timeout.count() / 1000;
-        tv.tv_usec = static_cast<decltype(tv.tv_usec)>((timeout.count() % 1000) * 1000);
-
-        for (;;)
-        {
-            fd_set rfd;
-            fd_set wfd;
-            fd_set efd;
-            FD_ZERO(&rfd);
-            FD_ZERO(&wfd);
-            FD_ZERO(&efd);
-            if (ptyMaster != -1)
-                FD_SET(ptyMaster, &rfd);
-            if (stdoutFastPipe != -1)
-                FD_SET(stdoutFastPipe, &rfd);
-            FD_SET(wakeupPipe, &rfd);
-            auto const nfds = 1 + max(max(ptyMaster, stdoutFastPipe), wakeupPipe);
-
-            int rv = select(nfds, &rfd, &wfd, &efd, &tv);
-            if (rv == 0)
-            {
-                // (Let's not be too verbose here.)
-                // PtyInLog()("PTY read() timed out.");
-                errno = EAGAIN;
-                return -1;
-            }
-
-            if (ptyMaster < 0)
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            if (rv < 0)
-            {
-                PtyInLog()("PTY read() failed. {}", strerror(errno));
-                return -1;
-            }
-
-            bool piped = false;
-            if (FD_ISSET(wakeupPipe, &rfd))
-            {
-                piped = true;
-                for (bool done = false; !done;)
-                {
-                    char dummy[256];
-                    rv = static_cast<int>(::read(wakeupPipe, dummy, sizeof(dummy)));
-                    done = rv > 0;
-                }
-            }
-
-            if (stdoutFastPipe != -1 && FD_ISSET(stdoutFastPipe, &rfd))
-                return stdoutFastPipe;
-
-            if (FD_ISSET(ptyMaster, &rfd))
-                return ptyMaster;
-
-            if (piped)
-            {
-                errno = EINTR;
-                return -1;
-            }
-        }
-    }
-
-    UnixPty::PtyHandles createUnixPty(PageSize const& windowSize, optional<crispy::ImageSize> pixels)
+    UnixPty::PtyHandles createUnixPty(PageSize const& windowSize, optional<ImageSize> pixels)
     {
         // See https://code.woboq.org/userspace/glibc/login/forkpty.c.html
         assert(*windowSize.lines <= numeric_limits<unsigned short>::max());
         assert(*windowSize.columns <= numeric_limits<unsigned short>::max());
 
-        winsize const ws { unbox<unsigned short>(windowSize.lines),
-                           unbox<unsigned short>(windowSize.columns),
-                           unbox<unsigned short>(pixels.value_or(crispy::ImageSize {}).width),
-                           unbox<unsigned short>(pixels.value_or(crispy::ImageSize {}).height) };
+        winsize const ws { .ws_row = unbox<unsigned short>(windowSize.lines),
+                           .ws_col = unbox<unsigned short>(windowSize.columns),
+                           .ws_xpixel = unbox<unsigned short>(pixels.value_or(ImageSize {}).width),
+                           .ws_ypixel = unbox<unsigned short>(pixels.value_or(ImageSize {}).height) };
 
 #if defined(__APPLE__)
         auto* wsa = const_cast<winsize*>(&ws);
@@ -167,57 +80,23 @@ namespace
         if (openpty(&masterFd, &slaveFd, nullptr, /*&term*/ nullptr, (winsize*) wsa) < 0)
             throw runtime_error { "Failed to open PTY. "s + strerror(errno) };
 
-        PtyLog()("PTY opened. master={}, slave={}", masterFd, slaveFd);
+        ptyLog()("PTY opened. master={}, slave={}", masterFd, slaveFd);
 
-        return { PtyMasterHandle::cast_from(masterFd), PtySlaveHandle::cast_from(slaveFd) };
+        return { .master = PtyMasterHandle::cast_from(masterFd),
+                 .slave = PtySlaveHandle::cast_from(slaveFd) };
     }
 
+#if defined(__linux__) && defined(UTEMPTER)
+    char const* hostnameForUtmp()
+    {
+        for (auto const* env: { "DISPLAY", "WAYLAND_DISPLAY" })
+            if (auto const* value = std::getenv(env))
+                return value;
+
+        return nullptr;
+    }
+#endif
 } // namespace
-
-// {{{ UnixPipe
-UnixPipe::UnixPipe(): pfd { -1, -1 }
-{
-    if (pipe(pfd))
-        perror("pipe");
-}
-
-UnixPipe::UnixPipe(UnixPipe&& v) noexcept: pfd { v.pfd[0], v.pfd[1] }
-{
-    v.pfd[0] = -1;
-    v.pfd[1] = -1;
-}
-
-UnixPipe& UnixPipe::operator=(UnixPipe&& v) noexcept
-{
-    close();
-    pfd[0] = v.pfd[0];
-    pfd[1] = v.pfd[1];
-    v.pfd[0] = -1;
-    v.pfd[1] = -1;
-    return *this;
-}
-
-UnixPipe::~UnixPipe()
-{
-    close();
-}
-
-void UnixPipe::close()
-{
-    closeReader();
-    closeWriter();
-}
-
-void UnixPipe::closeReader() noexcept
-{
-    detail::saveClose(&pfd[0]);
-}
-
-void UnixPipe::closeWriter() noexcept
-{
-    detail::saveClose(&pfd[1]);
-}
-// }}}
 
 // {{{ UnixPty::Slave
 UnixPty::Slave::~Slave()
@@ -227,12 +106,26 @@ UnixPty::Slave::~Slave()
 
 PtySlaveHandle UnixPty::Slave::handle() const noexcept
 {
-    return PtySlaveHandle::cast_from(_slaveFd);
+    return PtySlaveHandle::cast_from(_slaveFd.get());
 }
 
 void UnixPty::Slave::close()
 {
-    detail::saveClose(&_slaveFd);
+    _slaveFd.close();
+}
+
+void UnixPty::waitForClosed()
+{
+    crispy::read_selector selector;
+    selector.want_read(_masterFd);
+    while (true)
+    {
+        selector.wait_one();
+        if (isClosed())
+            break;
+
+        std::this_thread::yield();
+    }
 }
 
 bool UnixPty::Slave::isClosed() const noexcept
@@ -242,7 +135,7 @@ bool UnixPty::Slave::isClosed() const noexcept
 
 bool UnixPty::Slave::configure() noexcept
 {
-    auto const tio = detail::constructTerminalSettings(_slaveFd);
+    auto const tio = util::constructTerminalSettings(_slaveFd);
     if (tcsetattr(_slaveFd, TCSANOW, &tio) == 0)
         tcflush(_slaveFd, TCIOFLUSH);
     return true;
@@ -260,22 +153,41 @@ bool UnixPty::Slave::login()
     // But doing it ourselfs allows for a little more flexibility.
     // return login_tty(_slaveFd) == 0;
 
+    sigset_t signals;
+    sigemptyset(&signals);
+    sigprocmask(SIG_SETMASK, &signals, nullptr);
+
+    // clang-format off
+    struct sigaction act {};
+    act.sa_handler = SIG_DFL;
+    // clang-format on
+
+    for (auto const signo: { SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGALRM })
+        sigaction(signo, &act, nullptr);
+
     setsid();
 
 #if defined(TIOCSCTTY)
-    if (ioctl(_slaveFd, TIOCSCTTY, nullptr) == -1)
-        return false;
+    // Set the controlling terminal, unless we are running inside a flatpak.
+    // Because flatpak does not allow setting the controlling terminal.
+    // - https://github.com/flatpak/flatpak/issues/3697
+    // - https://github.com/flatpak/flatpak/issues/3285
+    if (!Process::isFlatpak())
+    {
+        if (ioctl(_slaveFd, TIOCSCTTY, nullptr) == -1)
+            return false;
+    }
 #endif
 
     for (int const fd: { 0, 1, 2 })
     {
         if (_slaveFd != fd)
             ::close(fd);
-        detail::saveDup2(_slaveFd, fd);
+        util::saveDup2(_slaveFd, fd);
     }
 
     if (_slaveFd > 2)
-        detail::saveClose(&_slaveFd);
+        _slaveFd.close();
 
     return true;
 }
@@ -293,41 +205,33 @@ int UnixPty::Slave::write(std::string_view text) noexcept
 }
 // }}}
 
-UnixPty::UnixPty(PageSize pageSize, optional<crispy::ImageSize> pixels):
-    _pageSize { pageSize }, _pixels { pixels }
+UnixPty::UnixPty(PageSize pageSize, optional<ImageSize> pixels): _pageSize { pageSize }, _pixels { pixels }
 {
 }
 
 void UnixPty::start()
 {
     auto const handles = createUnixPty(_pageSize, _pixels);
-    _masterFd = unbox<int>(handles.master);
+    _masterFd = crispy::file_descriptor::from_native(unbox<int>(handles.master));
     _slave = make_unique<Slave>(handles.slave);
 
-    if (!detail::setFileFlags(_masterFd, O_CLOEXEC | O_NONBLOCK))
+    if (!util::setFileFlags(_masterFd, O_CLOEXEC | O_NONBLOCK))
         throw runtime_error { "Failed to configure PTY. "s + strerror(errno) };
 
-    detail::setFileFlags(_stdoutFastPipe.reader(), O_NONBLOCK);
-    PtyLog()("stdout fastpipe: reader {}, writer {}", _stdoutFastPipe.reader(), _stdoutFastPipe.writer());
+    util::setFileFlags(_stdoutFastPipe.reader(), O_NONBLOCK);
+    ptyLog()("stdout fastpipe: reader {}, writer {}", _stdoutFastPipe.reader(), _stdoutFastPipe.writer());
 
-#if defined(__linux__)
-    if (pipe2(_pipe.data(), O_NONBLOCK /* | O_CLOEXEC | O_NONBLOCK*/) < 0)
-        throw runtime_error { "Failed to create PTY pipe. "s + strerror(errno) };
-#else
-    if (pipe(_pipe.data()) < 0)
-        throw runtime_error { "Failed to create PTY pipe. "s + strerror(errno) };
-    for (auto const fd: _pipe)
-        if (!detail::setFileFlags(fd, O_CLOEXEC | O_NONBLOCK))
-            break;
+    _readSelector.want_read(_masterFd);
+    _readSelector.want_read(_stdoutFastPipe.reader());
+
+#if defined(__linux__) && defined(UTEMPTER)
+    utempter_add_record(_masterFd, hostnameForUtmp());
 #endif
 }
 
 UnixPty::~UnixPty()
 {
-    PtyLog()("PTY destroying master (file descriptor {}).", _masterFd);
-    detail::saveClose(&_pipe.at(0));
-    detail::saveClose(&_pipe.at(1));
-    detail::saveClose(&_masterFd);
+    ptyLog()("PTY destroying master (file descriptor {}).", _masterFd);
 }
 
 PtySlave& UnixPty::slave() noexcept
@@ -338,13 +242,21 @@ PtySlave& UnixPty::slave() noexcept
 
 PtyMasterHandle UnixPty::handle() const noexcept
 {
-    return PtyMasterHandle::cast_from(_masterFd);
+    return PtyMasterHandle::cast_from(_masterFd.get());
 }
 
 void UnixPty::close()
 {
-    PtyLog()("PTY closing master (file descriptor {}).", _masterFd);
-    detail::saveClose(&_masterFd);
+    auto const _ = std::scoped_lock { _mutex };
+    if (_masterFd.is_closed())
+    {
+        ptyLog()("PTY closing master from thread {} (already closed).", crispy::threadName());
+        return;
+    }
+
+    ptyLog()("PTY closing master from thread {} (file descriptor {}).", crispy::threadName(), _masterFd);
+    _readSelector.cancel_read(_masterFd);
+    _masterFd.close();
     wakeupReader();
 }
 
@@ -355,26 +267,28 @@ bool UnixPty::isClosed() const noexcept
 
 void UnixPty::wakeupReader() noexcept
 {
-    // TODO(Linux): Using eventfd() instead could lower potential abuse.
-    char dummy {};
-    auto const rv = ::write(_pipe[1], &dummy, sizeof(dummy));
-    (void) rv;
+    _readSelector.wakeup();
 }
 
 optional<string_view> UnixPty::readSome(int fd, char* target, size_t n) noexcept
 {
     auto const rv = static_cast<int>(::read(fd, target, n));
     if (rv < 0)
+    {
+        if (errno != EAGAIN && errno != EINTR)
+            errorLog()("{} read failed: {}", fd == _masterFd ? "master" : "stdout-fastpipe", strerror(errno));
         return nullopt;
+    }
 
-    if (PtyInLog)
-        PtyInLog()("{} received: \"{}\"",
+    if (ptyInLog)
+        ptyInLog()("{} received: \"{}\"",
                    fd == _masterFd ? "master" : "stdout-fastpipe",
                    crispy::escape(target, target + rv));
 
     if (rv == 0 && fd == _stdoutFastPipe.reader())
     {
-        PtyInLog()("Closing stdout-fastpipe.");
+        ptyInLog()("Closing stdout-fastpipe.");
+        _readSelector.cancel_read(fd);
         _stdoutFastPipe.closeReader();
         errno = EAGAIN;
         return nullopt;
@@ -383,60 +297,56 @@ optional<string_view> UnixPty::readSome(int fd, char* target, size_t n) noexcept
     return string_view { target, static_cast<size_t>(rv) };
 }
 
-Pty::ReadResult UnixPty::read(crispy::BufferObject<char>& storage,
-                              std::chrono::milliseconds timeout,
-                              size_t size)
+std::optional<Pty::ReadResult> UnixPty::read(crispy::buffer_object<char>& storage,
+                                             std::optional<std::chrono::milliseconds> timeout,
+                                             size_t size)
 {
-    if (int fd = waitForReadable(_masterFd, _stdoutFastPipe.reader(), _pipe[0], timeout); fd != -1)
-    {
-        auto const _l = scoped_lock { storage };
-        if (auto x = readSome(fd, storage.hotEnd(), min(size, storage.bytesAvailable())))
-            return { tuple { x.value(), fd == _stdoutFastPipe.reader() } };
-    }
+    assert(_readSelector.size() > 0);
 
-    return nullopt;
+    if (auto const fd = _readSelector.wait_one(timeout); fd.has_value())
+    {
+        auto const l = scoped_lock { storage };
+        if (auto x = readSome(*fd, storage.hotEnd(), std::min(size, storage.bytesAvailable())))
+            return ReadResult { .data = x.value(), .fromStdoutFastPipe = *fd == _stdoutFastPipe.reader() };
+    }
+    else
+        errno = EAGAIN;
+    return std::nullopt;
 }
 
-int UnixPty::write(char const* buf, size_t size)
+int UnixPty::write(std::string_view data)
 {
-    timeval tv {};
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
+    auto const* buf = data.data();
+    auto const size = data.size();
 
-    fd_set rfd;
-    fd_set wfd;
-    fd_set efd;
-    FD_ZERO(&rfd);
-    FD_ZERO(&wfd);
-    FD_ZERO(&efd);
-    FD_SET(_masterFd, &wfd);
-    FD_SET(_pipe[0], &rfd);
-    auto const nfds = 1 + max(_masterFd, _pipe[0]);
-
-    if (select(nfds, &rfd, &wfd, &efd, &tv) < 0)
-        return -1;
-
-    if (!FD_ISSET(_masterFd, &wfd))
-    {
-        PtyOutLog()("PTY write of {} bytes timed out.\n", size);
-        return 0;
-    }
-
-    ssize_t rv = ::write(_masterFd, buf, size);
-    if (PtyOutLog)
+    ssize_t const rv = ::write(_masterFd, buf, size);
+    if (ptyOutLog)
     {
         if (rv >= 0)
-            PtyOutLog()("Sending bytes: \"{}\"", crispy::escape(buf, buf + rv));
+            ptyOutLog()("Sending bytes: \"{}\"", crispy::escape(buf, buf + rv));
 
         if (rv < 0)
             // errorlog()("PTY write failed: {}", strerror(errno));
-            PtyOutLog()("PTY write of {} bytes failed. {}\n", size, strerror(errno));
+            ptyOutLog()("PTY write of {} bytes failed. {}\n", size, strerror(errno));
         else if (0 <= rv && static_cast<size_t>(rv) < size)
             // clang-format off
-            PtyOutLog()("Partial write. {} bytes written and {} bytes left.",
+            ptyOutLog()("Partial write. {} bytes written and {} bytes left.",
                         rv,
                         size - static_cast<size_t>(rv));
         // clang-format on
+    }
+
+    if (0 <= rv && static_cast<size_t>(rv) < size)
+    {
+        util::setFileBlocking(_masterFd, true);
+        auto const rv2 = ::write(_masterFd, buf + rv, size - rv);
+        util::setFileBlocking(_masterFd, false);
+        if (rv2 >= 0)
+        {
+            if (ptyOutLog)
+                ptyOutLog()("Sending bytes: \"{}\"", crispy::escape(buf + rv, buf + rv + rv2));
+            return static_cast<int>(rv + rv2);
+        }
     }
 
     return static_cast<int>(rv);
@@ -447,10 +357,12 @@ PageSize UnixPty::pageSize() const noexcept
     return _pageSize;
 }
 
-void UnixPty::resizeScreen(PageSize cells, std::optional<crispy::ImageSize> pixels)
+void UnixPty::resizeScreen(PageSize cells, std::optional<ImageSize> pixels)
 {
     if (_masterFd < 0)
         return;
+
+    ptyLog()("Sending terminal size: {}x{} / {}", cells.columns, cells.lines, pixels.value_or(ImageSize {}));
 
     auto w = winsize {};
     w.ws_col = unbox<unsigned short>(cells.columns);
@@ -468,4 +380,4 @@ void UnixPty::resizeScreen(PageSize cells, std::optional<crispy::ImageSize> pixe
     _pageSize = cells;
 }
 
-} // namespace terminal
+} // namespace vtpty

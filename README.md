@@ -1,5 +1,5 @@
 # Contour - a modern & actually fast Terminal Emulator
-[![CI Build](https://github.com/contour-terminal/contour/workflows/Build/badge.svg)](https://github.com/contour-terminal/contour/actions?query=workflow%3ABuild)
+[![CI Build](https://github.com/contour-terminal/contour/actions/workflows/build.yml/badge.svg)](https://github.com/contour-terminal/contour/actions/workflows/build.yml)
 [![codecov](https://codecov.io/gh/contour-terminal/contour/branch/master/graph/badge.svg)](https://codecov.io/gh/contour-terminal/contour)
 [![C++20](https://img.shields.io/badge/standard-C%2B%2B%2020-blue.svg?logo=C%2B%2B)](https://isocpp.org/)
 [![Discord](https://img.shields.io/discord/479301317337284608.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/ncv4pG9)
@@ -13,28 +13,29 @@ for everyday use. It is aiming for power users with a modern feature mindset.
 
 ## Features
 
-- ✅ Available on all 4 major platforms, Linux, OS/X, FreeBSD, Windows.
+- ✅ Available on all major platforms, Linux, macOS, FreeBSD, OpenBSD, Windows.
 - ✅ GPU-accelerated rendering.
 - ✅ Font ligatures support (such as in Fira Code).
 - ✅ Unicode: Emoji support (-: 🌈 💝 😛 👪 - including ZWJ, VS15, VS16 emoji :-)
 - ✅ Unicode: Grapheme cluster support
+- ✅ Terminal tabs
 - ✅ Bold and italic fonts
 - ✅ High-DPI support.
 - ✅ Vertical Line Markers (quickly jump to markers in your history!)
 - ✅ Vi-like input modes for improved selection and copy'n'paste experience and Vi-like `scrolloff` feature.
-- ✅ Blurred behind transparent background when using Windows 10 or KDE window manager on Linux.
+- ✅ Blurred behind transparent background support for Windows 10 and above as well as the KDE and GNOME desktop environment on Linux.
 - ✅ Blurrable Background image support.
 - ✅ Runtime configuration reload
 - ✅ 256-color and Truecolor support
 - ✅ Key binding customization
 - ✅ Color Schemes
 - ✅ Profiles (grouped customization of: color scheme, login shell, and related behaviours)
-- ✅ [Synchronized rendering](https://github.com/contour-terminal/contour/wiki/VTExtensions#synchronized-output) (via `SM ? 2026` / `RM ? 2026`)
+- ✅ [Synchronized rendering](https://contour-terminal.org/vt-extensions/synchronized-output/) (via `SM ? 2026` / `RM ? 2026`)
 - ✅ Text reflow (configurable via `SM ? 2028` / `RM ? 2028`)
 - ✅ Clickable hyperlinks via [OSC 8](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)
 - ✅ Clipboard setting via OSC 52
 - ✅ Sixel inline images
-- ✅ Terminal page [buffer capture VT extension](https://github.com/contour-terminal/contour/wiki/VTExtensions#buffer-capture) to quickly extract contents.
+- ✅ Terminal page [buffer capture VT extension](https://contour-terminal.org/vt-extensions/buffer-capture/) to quickly extract contents.
 - ✅ Builtin [Fira Code inspired progress bar](https://github.com/contour-terminal/contour/issues/521) support.
 - ✅ Read-only mode, protecting against accidental user-input to the running application, such as <kbd>Ctrl</kbd>+<kbd>C</kbd>.
 - ✅ VT320 Host-programmable and Indicator status line support.
@@ -42,20 +43,25 @@ for everyday use. It is aiming for power users with a modern feature mindset.
 
 ## Installation
 
-`contour` is packaged and available for installation on multiple distributions.
+`contour` is packaged and available for installation on multiple distributions:
  - `Fedora` use official [package](https://packages.fedoraproject.org/pkgs/contour-terminal/contour-terminal/)
+ - `Arch` use official [package](https://archlinux.org/packages/extra/x86_64/contour/)
+ - `Void` use official [package](https://github.com/void-linux/void-packages/tree/master/srcpkgs/contour)
+ - `openSUSE` use official [package](https://build.opensuse.org/package/show/X11:terminals/contour-terminal)
 
-```sh
-sudo dnf install contour-terminal
-```
+Additional packages can be found on the release [page](https://github.com/contour-terminal/contour/releases) including:
+ - ubuntu package
+ - AppImage
+ - static build
+ - MacOS bundle
+ - Windows installer and zipped app
 
- - `Arch` use AUR [package](https://aur.archlinux.org/packages/contour-git)
 
 ### Installing via Flatpak
 
 #### Install from Flathub
 
-Click the following button install Contour from the Flathub store.
+Click the following button to install Contour from the Flathub store.
 
 [![Get it on Flathub](https://raw.githubusercontent.com/flatpak-design-team/flathub-mockups/master/assets/download-button/download.svg?sanitize=true)](https://flathub.org/apps/details/org.contourterminal.Contour)
 
@@ -70,13 +76,13 @@ Click the following button install Contour from the Flathub store.
 
 ## Requirements
 
-- **operating system**: A *recent* operating system (OS/X 12, Windows 10+, an up-to-date Linux, or FreeBSD)
+- **operating system**: A *recent* operating system (macOS, Windows 10+, an up-to-date Linux, FreeBSD or OpenBSD)
 - **GPU**: driver must support at least OpenGL 3.3 hardware accelerated or as software rasterizer.
 - **CPU**: x86-64 AMD or Intel with AES-NI instruction set or ARMv8 with crypto extensions.
 
 ## Configuration
 
-In order to set up Contour, it is necessary to modify the configuration file
+In order to configure Contour, it is necessary to modify the configuration file
 `contour.yml`, which is initially generated in the `$HOME/.config/contour`
 directory. Some features also require shell integration. These can be generated
 via the CLI (see below), these currently exist for zsh, fish and tcsh.
@@ -84,9 +90,12 @@ via the CLI (see below), these currently exist for zsh, fish and tcsh.
 ## Installing from source
 
 Contour is best installed from supported package managers, but you can build
-from source by following the instruction below.
+from source by following the instructions below. You can use Qt 5 or Qt 6,
+by default contour will be compiled with Qt 6, to change Qt version use
+`QTVER=5 ./scripts/install-deps.sh` to fetch dependencies and cmake flag
+`-D CONTOUR_QT_VERSION=5`.
 
-### UNIX-like systems (Linux, FreeBSD, OS/X)
+### UNIX-like systems (Linux, FreeBSD, OpenBSD, macOS)
 
 #### Prerequisites
 
@@ -99,12 +108,14 @@ can be insalled via the system package manager.
 
 #### Compile
 
+You can use cmake presets to compile contour. The full list of available presets can be seen using `cmake --list-presets`. To compile release build for linux or MacOs use `linux-release` or `macos-release` accordingly. FreeBSD and OpenBSD users can use `linux-release` or configure cmake manually.
+
 ```sh
-cmake -S . -B build -G Ninja
-cmake --build build/
+cmake --preset linux-release
+cmake --build --preset linux-release
 
 # Optionally, if you want to install from source
-cmake --build build/ --target install
+cmake --build --preset linux-release --target install
 ```
 
 #### Windows 10 or newer
@@ -118,7 +129,7 @@ It will neither build nor run on any prior Windows OS, due to libterminal making
 
 ```
 cd C:\
-git clone git clone https://github.com/Microsoft/vcpkg.git
+git clone https://github.com/Microsoft/vcpkg.git
 .\vcpkg\bootstrap-vcpkg.bat
 ```
 
@@ -172,11 +183,11 @@ cmake --build build/ --target install
 # References
 
 * [VT510](https://vt100.net/docs/vt510-rm/): VT510 Manual, see Chapter 5.
-* [ECMA-35](http://www.ecma-international.org/publications/standards/Ecma-035.htm):
+* [ECMA-35](http://www.ecma-international.org/publications-and-standards/standards/ecma-35):
     Character Code Structure and Extension Techniques
-* [ECMA-43](http://www.ecma-international.org/publications/standards/Ecma-043.htm):
+* [ECMA-43](http://www.ecma-international.org/publications-and-standards/standards/ecma-43):
     8-bit Coded Character Set Structure and Rules
-* [ECMA-48](http://www.ecma-international.org/publications/standards/Ecma-048.htm):
+* [ECMA-48](http://www.ecma-international.org/publications-and-standards/standards/ecma-48):
     Control Functions for Coded Character Sets
 * [ISO/IEC 8613-6](https://www.iso.org/standard/22943.html):
     Character content architectures

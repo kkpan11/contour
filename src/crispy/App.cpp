@@ -1,25 +1,15 @@
-/**
- * This file is part of the "libterminal" project
- *   Copyright (c) 2019-2020 Christian Parpart <christian@parpart.family>
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
 #include <crispy/App.h>
-#include <crispy/indexed.h>
 #include <crispy/logstore.h>
 #include <crispy/utils.h>
 
-#include <fmt/chrono.h>
+#include <range/v3/view/enumerate.hpp>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <filesystem>
+#include <format>
 #include <iomanip>
 #include <numeric>
 #include <optional>
@@ -33,7 +23,6 @@
 
 using std::bind;
 using std::cout;
-using std::endl;
 using std::exception;
 using std::left;
 using std::max;
@@ -48,6 +37,7 @@ using std::chrono::duration_cast;
 using namespace std::string_view_literals;
 
 namespace chrono = std::chrono;
+namespace fs = std::filesystem;
 
 namespace CLI = crispy::cli;
 
@@ -61,11 +51,11 @@ std::string operator*(std::string_view a, size_t n)
     return s;
 }
 
-CLI::HelpStyle helpStyle()
+CLI::help_display_style helpStyle()
 {
-    auto style = CLI::HelpStyle {};
+    auto style = CLI::help_display_style {};
 
-    style.optionStyle = CLI::OptionStyle::Natural;
+    style.optionStyle = CLI::option_style::Natural;
 
 #if !defined(_WIN32)
     if (isatty(STDOUT_FILENO) == 0)
@@ -91,29 +81,29 @@ unsigned screenWidth()
     return DefaultWidth;
 }
 
-FileSystem::path xdgStateHome()
+fs::path xdgStateHome()
 {
     if (auto const* p = getenv("XDG_STATE_HOME"); (p != nullptr) && (*p != '\0'))
-        return FileSystem::path(p);
+        return fs::path(p);
 
 #if defined(_WIN32)
     if (auto const* p = getenv("LOCALAPPDATA"); p && *p)
-        return FileSystem::path(p);
+        return fs::path(p);
 #else
     if (passwd const* pw = getpwuid(getuid()); (pw != nullptr) && (pw->pw_dir != nullptr))
-        return FileSystem::path(pw->pw_dir) / ".local" / "state";
+        return fs::path(pw->pw_dir) / ".local" / "state";
 #endif
 
-    return FileSystem::temp_directory_path();
+    return fs::temp_directory_path();
 }
 } // namespace
 
 namespace crispy
 {
 
-App* App::_instance = nullptr;
+app* app::_instance = nullptr;
 
-App::App(std::string appName, std::string appTitle, std::string appVersion, std::string appLicense):
+app::app(std::string appName, std::string appTitle, std::string appVersion, std::string appLicense):
     _appName { std::move(appName) },
     _appTitle { std::move(appTitle) },
     _appVersion { std::move(appVersion) },
@@ -128,27 +118,26 @@ App::App(std::string appName, std::string appTitle, std::string appVersion, std:
 
     _instance = this;
 
-    link(_appName + ".help", bind(&App::helpAction, this));
-    link(_appName + ".version", bind(&App::versionAction, this));
-    link(_appName + ".license", bind(&App::licenseAction, this));
+    link(_appName + ".help", bind(&app::helpAction, this));
+    link(_appName + ".version", bind(&app::versionAction, this));
+    link(_appName + ".license", bind(&app::licenseAction, this));
 }
 
-App::~App()
+app::~app()
 {
     _instance = nullptr;
 }
 
-void App::link(std::string command, std::function<int()> handler)
+void app::link(std::string command, std::function<int()> handler)
 {
     _handlers[std::move(command)] = std::move(handler);
 }
 
-void App::listDebugTags()
+void app::listDebugTags()
 {
-    auto categories = logstore::get();
-    sort(begin(categories), end(categories), [](auto const& a, auto const& b) {
-        return a.get().name() < b.get().name();
-    });
+    auto& categories = logstore::get();
+    std::ranges::sort(categories,
+                      [](auto const& a, auto const& b) { return a.get().name() < b.get().name(); });
 
     auto const maxNameLength =
         std::accumulate(begin(categories), end(categories), size_t { 0 }, [&](auto acc, auto const& cat) {
@@ -167,13 +156,13 @@ void App::listDebugTags()
     }
 }
 
-int App::helpAction()
+int app::helpAction()
 {
     std::cout << CLI::helpText(_syntax.value(), helpStyle(), screenWidth());
     return EXIT_SUCCESS;
 }
 
-int App::licenseAction()
+int app::licenseAction()
 {
     auto const& store = crispy::cli::about::store();
     auto const titleWidth = std::accumulate(
@@ -184,37 +173,37 @@ int App::licenseAction()
     auto const urlWidth = std::accumulate(
         store.begin(), store.end(), 0u, [](size_t a, auto const& b) { return std::max(a, b.url.size()); });
 
-    auto const Horiz = "\u2550"sv;
-    auto const Vert = "\u2502"sv;
-    auto const Cross = "\u256A"sv;
+    constexpr auto Horiz = "\u2550"sv;
+    constexpr auto Vert = "\u2502"sv;
+    constexpr auto Cross = "\u256A"sv;
 
-    cout << endl
-         << _appTitle << ' ' << _appVersion << endl
-         << "License: " << _appLicense << endl
-         << "\u2550"sv * (_appTitle.size() + _appVersion.size() + 1) << endl
-         << endl;
+    cout << '\n'
+         << _appTitle << ' ' << _appVersion << '\n'
+         << "License: " << _appLicense << '\n'
+         << "\u2550"sv * (_appTitle.size() + _appVersion.size() + 1) << '\n'
+         << '\n';
 
     cout << setw((int) titleWidth) << "Project" << ' ' << Vert << ' ' << setw((int) licenseWidth) << "License"
-         << ' ' << Vert << ' ' << "Project URL" << endl;
+         << ' ' << Vert << ' ' << "Project URL" << '\n';
 
     cout << Horiz * titleWidth << Horiz << Cross << Horiz << Horiz * licenseWidth << Horiz << Cross << Horiz
-         << Horiz * urlWidth << endl;
+         << Horiz * urlWidth << '\n';
 
     for (auto const& project: crispy::cli::about::store())
         cout << setw((int) titleWidth) << project.title << ' ' << Vert << ' ' << setw((int) licenseWidth)
-             << project.license << ' ' << Vert << ' ' << project.url << endl;
+             << project.license << ' ' << Vert << ' ' << project.url << '\n';
 
     return EXIT_SUCCESS;
 }
 
-int App::versionAction()
+int app::versionAction()
 {
-    std::cout << fmt::format("{} {}\n\n", _appTitle, _appVersion);
+    std::cout << std::format("{} {}\n\n", _appTitle, _appVersion);
     return EXIT_SUCCESS;
 }
 
 // customize debuglog transform to shorten the file_name output a bit
-int App::run(int argc, char const* argv[])
+int app::run(int argc, char const* argv[])
 {
     try
     {
@@ -222,7 +211,7 @@ int App::run(int argc, char const* argv[])
 
         _syntax = parameterDefinition();
 
-        optional<CLI::FlagStore> flagsOpt = CLI::parse(_syntax.value(), argc, argv);
+        optional<CLI::flag_store> flagsOpt = CLI::parse(_syntax.value(), argc, argv);
         if (!flagsOpt.has_value())
         {
             std::cerr << "Failed to parse command line parameters.\n";
@@ -230,27 +219,27 @@ int App::run(int argc, char const* argv[])
         }
         _flags = std::move(flagsOpt.value());
 
-        // std::cout << fmt::format("Flags: {}\n", parameters().values.size());
-        // for (auto const & [k, v] : parameters().values)
-        //     std::cout << fmt::format(" - {}: {}\n", k, v);
+        // std::cout << std::format("Flags: {}\n", parameters().values.size());
+        // for (auto const& [k, v]: parameters().values)
+        //     std::cout << std::format(" - {}: {}\n", k, v);
 
         for (auto const& [name, handler]: _handlers)
             if (parameters().get<bool>(name))
                 return handler();
 
-        std::cerr << "Usage error." << endl;
+        std::cerr << "Usage error." << '\n';
         return EXIT_FAILURE;
     }
     catch (exception const& e)
     {
-        std::cerr << fmt::format("Unhandled error caught. {}", e.what()) << endl;
+        std::cerr << std::format("Unhandled error caught. {}", e.what()) << '\n';
         return EXIT_FAILURE;
     }
 }
 
-void App::customizeLogStoreOutput()
+void app::customizeLogStoreOutput()
 {
-    logstore::Sink::console().set_enabled(true);
+    logstore::sink::console().set_enabled(true);
 
     // A curated list of colors.
     static const bool colorized =
@@ -259,34 +248,31 @@ void App::customizeLogStoreOutput()
 #else
         true;
 #endif
-    static constexpr auto colors = std::array<int, 23> {
+    static constexpr auto Colors = std::array<int, 23> {
         2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 150, 155, 159, 165, 170, 175, 180, 185, 190, 195, 200,
     };
-    logstore::set_formatter([](logstore::MessageBuilder const& msg) -> std::string {
+    logstore::set_formatter([](logstore::message_builder const& msg) -> std::string {
         auto const [sgrTag, sgrMessage, sgrReset] = [&]() -> std::tuple<string, string, string> {
             if (!colorized)
                 return { "", "", "" };
             const auto* const tagStart = "\033[1m";
             auto const colorIndex =
-                colors.at(std::hash<string_view> {}(msg.category().name()) % colors.size());
-            auto const msgStart = fmt::format("\033[38;5;{}m", colorIndex);
-            auto const resetSGR = fmt::format("\033[m");
+                Colors.at(std::hash<string_view> {}(msg.get_category().name()) % Colors.size());
+            auto const msgStart = std::format("\033[38;5;{}m", colorIndex);
+            auto const resetSGR = std::format("\033[m");
             return { tagStart, msgStart, resetSGR };
         }();
 
-#if 1
-        auto const fileName = FileSystem::path(msg.location().file_name()).filename().string();
-#else
-        // fileName with path to file relative to project root
-        auto const srcIndex = string_view(msg.location().file_name()).find("src");
-        auto const fileName = string(srcIndex != string_view::npos
-                                         ? string_view(msg.location().file_name()).substr(srcIndex + 4)
-                                         : string(msg.location().file_name()));
-#endif
+        // // fileName with path to file relative to project root
+        // auto const srcIndex = string_view(msg.location().file_name()).find("src");
+        // auto const fileName = string(srcIndex != string_view::npos
+        //                                  ? string_view(msg.location().file_name()).substr(srcIndex + 4)
+        //                                  : string(msg.location().file_name()));
 
         auto result = string {};
 
-        for (auto const [i, line]: crispy::indexed(crispy::split(msg.text(), '\n')))
+        auto const lines = crispy::split(msg.text(), '\n');
+        for (auto const [i, line]: ranges::views::enumerate(lines))
         {
             if (i != 0)
                 result += "        ";
@@ -294,13 +280,16 @@ void App::customizeLogStoreOutput()
             {
                 // clang-format off
                 auto const now = chrono::system_clock::now();
-                auto const micros =
-                    duration_cast<chrono::microseconds>(now.time_since_epoch()).count() % 1'000'000;
+                std::time_t const nowTimeT = std::chrono::system_clock::to_time_t(now);
+                std::tm const* tm = std::localtime(&nowTimeT);
+                std::stringstream dateTimeStrStream;
+                dateTimeStrStream << std::put_time(tm, "%Y-%m-%d %H:%M:%S");
+                auto const micros = duration_cast<chrono::microseconds>(now.time_since_epoch()).count() % 1'000'000;
                 result += sgrTag;
-                result += fmt::format("[{:%Y-%m-%d %H:%M:%S}.{:06}] [{}]",
-                                      chrono::system_clock::now(),
+                result += std::format("[{}.{:06}] [{}]",
+                                      dateTimeStrStream.str(),
                                       micros,
-                                      msg.category().name());
+                                      msg.get_category().name());
                 result += sgrReset;
                 result += ' ';
                 // clang-format on
@@ -315,7 +304,7 @@ void App::customizeLogStoreOutput()
         return result;
     });
 
-    logstore::ErrorLog.set_formatter([](logstore::MessageBuilder const& msg) -> std::string {
+    logstore::errorLog.set_formatter([](logstore::message_builder const& msg) -> std::string {
         auto const [sgrTag, sgrMessage, sgrReset] = [&]() -> std::tuple<string, string, string> {
             if (!colorized)
                 return { "", "", "" };
@@ -326,15 +315,15 @@ void App::customizeLogStoreOutput()
         }();
 
         auto result = string {};
-
-        for (auto const [i, line]: crispy::indexed(crispy::split(msg.text(), '\n')))
+        auto const lines = crispy::split(msg.text(), '\n');
+        for (auto const [i, line]: ranges::views::enumerate(lines))
         {
             if (i != 0)
                 result += "        ";
             else
             {
                 result += sgrTag;
-                result += fmt::format("[{}] ", "error");
+                result += std::format("[{}] ", "error");
                 result += sgrReset;
             }
 

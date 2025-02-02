@@ -15,6 +15,7 @@ _deps/**
 out
 out/**
 CMakeSettings.json
+vcpkg_installed/**
 
 # VIM: code completion / IntelliSense
 .clangd
@@ -47,6 +48,9 @@ sandbox/**
 # Linux/KDE
 .directory
 
+# Python virtual environment
+.venv
+
 # debian: dpkg-buildpackage intermediates
 debian/files
 debian/tmp/**
@@ -56,3 +60,12 @@ debian/contour/**
 configure-stamp
 build-stamp
 install-stamp
+
+src/contour/ui/RequestPermission.qml
+src/contour/ui/Terminal.qml
+src/contour/ui/main.qml
+
+# mkdocs
+docs/vt-sequence/index.md
+
+version.txt
